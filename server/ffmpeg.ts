@@ -81,12 +81,13 @@ export function ffmpegWithProgress(args: string[], duration: number, onProgress:
 /** Decodifica audio a PCM float32 intercalado. */
 export async function decodePcm(
   file: string,
-  { start = 0, duration, sampleRate = 48000, channels = 2, tempo = 1 }: { start?: number; duration?: number; sampleRate?: number; channels?: number; tempo?: number },
+  { start = 0, duration, sampleRate = 48000, channels = 2, tempo = 1, filters }: { start?: number; duration?: number; sampleRate?: number; channels?: number; tempo?: number; filters?: string },
 ): Promise<Float32Array> {
   const args = ['-v', 'error', '-ss', String(Math.max(0, start))];
   if (duration !== undefined) args.push('-t', String(duration));
   args.push('-i', file, '-vn', '-ac', String(channels), '-ar', String(sampleRate));
-  if (tempo !== 1) args.push('-af', atempoChain(tempo));
+  const af = [filters, tempo !== 1 ? atempoChain(tempo) : ''].filter(Boolean).join(',');
+  if (af) args.push('-af', af);
   args.push('-f', 'f32le', 'pipe:1');
   const { stdout } = await run('ffmpeg', args);
   return new Float32Array(stdout.buffer, stdout.byteOffset, Math.floor(stdout.byteLength / 4));

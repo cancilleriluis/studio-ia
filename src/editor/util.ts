@@ -74,23 +74,24 @@ export function addEffectAt(effectId: string, start?: number, trackId?: string) 
 }
 
 /** Quita silencios de un clip (transcripción si existe; si no, forma de onda). */
-export async function removeSilences(clipId: string, opts = { minSilence: 0.45, pad: 0.1 }) {
+export async function removeSilences(clipId: string, opts = { minSilence: 0.3, pad: 0.08, sensitivity: 0.5 }) {
   const st = useEditor.getState();
   const p = st.project!;
   const c = p.clips.find((x) => x.id === clipId);
   if (!c || !isMedia(c)) return;
   const a = getAsset(p, c.assetId);
   if (!a) return;
-  const tr = await st.ensureTranscript(a.id);
+  // La energía del audio es la referencia fiable; la transcripción solo si no hay forma de onda
+  const w = await st.ensureWaveform(a.id);
   let ranges: [number, number][];
-  if (tr?.words.length) ranges = silencesFromWords(tr.words, a.duration, opts);
+  if (w) ranges = silencesFromPeaks(w.peaks, w.rate, opts);
   else {
-    const w = await st.ensureWaveform(a.id);
-    if (!w) {
+    const tr = await st.ensureTranscript(a.id);
+    if (!tr?.words.length) {
       st.notify('Este clip no tiene audio analizado todavía', 'error');
       return;
     }
-    ranges = silencesFromPeaks(w.peaks, w.rate, opts);
+    ranges = silencesFromWords(tr.words, a.duration, opts);
   }
   let removed = 0;
   st.commit((d: Project) => {

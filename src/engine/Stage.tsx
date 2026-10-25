@@ -10,6 +10,7 @@ import { AudioView, ImageView, VideoView, assetUrl } from './media';
 import { Captions } from './Captions';
 import { renderMode } from './renderSync';
 import { TEMPLATE_COMPONENTS } from '../templates';
+import { transformAt } from '../../shared/keyframes';
 
 interface StageProps {
   project: Project;
@@ -64,6 +65,7 @@ export const Stage = memo(function Stage({ project, format, time, playing, capti
         return (
           <div
             key={c.id}
+            data-clip-id={c.id}
             style={{
               position: 'absolute',
               inset: 0,
@@ -216,19 +218,27 @@ function MediaContent({
     tStyle = outTransition(next.transitionIn.type, prog(time, end - d / 2, end + d / 2), W, H, u);
   }
 
-  const tr = c.transform;
+  const tr = transformAt(c, local);
+  const sc = Math.max(0.01, tr.scale);
   const wrap: CSSProperties = {
     position: 'absolute',
     inset: 0,
     transform: `translate(${tr.x * W}px, ${tr.y * H}px) rotate(${tr.rotation}deg) scale(${tr.scale})`,
     opacity: tr.opacity,
+    filter: c.shadow ? `drop-shadow(0 ${(24 * u) / sc}px ${(60 * u) / sc}px rgba(0,0,0,${0.7 * c.shadow}))` : undefined,
   };
+  // Recorte y esquinas (picture-in-picture). Radio y borde constantes tras escalar.
+  const cr = c.crop ?? { l: 0, t: 0, r: 0, b: 0 };
+  const rad = ((c.radius ?? 0) * u) / sc;
+  const hasBox = !!(c.crop || c.radius || c.border?.width);
+  const box = { left: cr.l * W, top: cr.t * H, width: W * (1 - cr.l - cr.r), height: H * (1 - cr.t - cr.b) };
+  const clipPath = hasBox ? `inset(${cr.t * H}px ${cr.r * W}px ${cr.b * H}px ${cr.l * W}px round ${rad}px)` : undefined;
 
   let media: React.ReactNode;
   if (asset.type === 'video') {
     const st = clamp(c.in + local * c.speed, 0, Math.max(0, asset.duration - 0.04));
     media = (
-      <VideoView src={assetUrl(projectId, asset)} sourceTime={st} active={visible} playing={playing} rate={c.speed} volume={volume} style={mediaStyle} />
+      <VideoView src={assetUrl(projectId, asset)} sourceTime={st} active={visible} playing={playing} rate={c.speed} volume={volume} enhance={!!c.enhance} style={mediaStyle} />
     );
   } else {
     media = <ImageView src={assetUrl(projectId, asset)} style={mediaStyle} />;
@@ -236,7 +246,7 @@ function MediaContent({
 
   return (
     <div style={wrap}>
-      <div style={{ position: 'absolute', inset: 0, ...tStyle }}>
+      <div style={{ position: 'absolute', inset: 0, ...tStyle, clipPath }}>
         {media}
         {col && col.warmth !== 0 && (
           <div
@@ -253,6 +263,18 @@ function MediaContent({
           />
         )}
       </div>
+      {c.border?.width ? (
+        <div
+          style={{
+            position: 'absolute',
+            ...box,
+            border: `${(c.border.width * u) / sc}px solid ${c.border.color}`,
+            borderRadius: rad,
+            boxSizing: 'border-box',
+            ...tStyle,
+          }}
+        />
+      ) : null}
       {overlay && <div style={{ position: 'absolute', inset: 0, ...overlay }} />}
     </div>
   );
@@ -287,7 +309,7 @@ function TemplateContent({
   if (!Comp) return null;
   const local = Math.max(0, time - c.start);
   const { pin, pout } = envelope(local, c.duration, c.inDuration, c.outDuration);
-  const tr = c.transform;
+  const tr = transformAt(c, local);
   const aIn = animStyle(c.animIn, pin, u);
   const aOut = animStyle(c.animOut, 1 - pout, u, true);
   return (
@@ -419,6 +441,7 @@ function AudioLayers({ project, time, playing, regions }: { project: Project; ti
             playing={playing}
             rate={c.speed}
             volume={clipGainAt(project, c, time, regions)}
+            enhance={!!c.enhance}
           />
         );
       })}

@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import puppeteer, { type Browser } from 'puppeteer';
 import type { FormatId } from '../shared/types';
 import { FORMATS } from '../shared/formats';
@@ -22,6 +22,29 @@ export interface ExportOptions {
   quality: 'high' | 'standard' | 'draft';
   normalize: boolean;
   range?: [number, number];
+  /** Multiplicador de resolución: 2 = 4K en 16:9, 0.5 = borrador. */
+  scale?: number;
+  codec?: 'h264' | 'hevc';
+}
+
+const HAS_VIDEOTOOLBOX = (() => {
+  try {
+    return execFileSync('ffmpeg', ['-hide_banner', '-encoders']).toString().includes('hevc_videotoolbox');
+  } catch {
+    return false;
+  }
+})();
+
+function videoEncoder(codec: 'h264' | 'hevc', quality: ExportOptions['quality']): string[] {
+  const crf = quality === 'high' ? 16 : quality === 'standard' ? 20 : 26;
+  const preset = quality === 'draft' ? 'veryfast' : 'medium';
+  if (codec === 'hevc') {
+    // HEVC acelerado por el chip del Mac: archivos ~40 % más pequeños
+    return HAS_VIDEOTOOLBOX
+      ? ['-c:v', 'hevc_videotoolbox', '-q:v', quality === 'high' ? '72' : quality === 'standard' ? '60' : '45', '-tag:v', 'hvc1']
+      : ['-c:v', 'libx265', '-preset', preset, '-crf', String(crf + 5), '-tag:v', 'hvc1'];
+  }
+  return ['-c:v', 'libx264', '-preset', preset, '-crf', String(crf)];
 }
 
 export interface ExportJob {
@@ -118,8 +141,9 @@ async function runExport(job: ExportJob, opts: ExportOptions) {
     const duration = Math.max(0.1, r1 - r0);
     const fps = opts.fps;
     const total = Math.ceil(duration * fps);
-    const crf = opts.quality === 'high' ? 16 : opts.quality === 'standard' ? 20 : 26;
-    const preset = opts.quality === 'draft' ? 'veryfast' : 'medium';
+    const scale = Math.min(2, Math.max(0.25, opts.scale ?? 1));
+    const codec = opts.codec ?? 'h264';
+    const encoder = videoEncoder(codec, opts.quality);
 
     job.status = 'rendering';
     emit(job);
@@ -148,7 +172,7 @@ async function runExport(job: ExportJob, opts: ExportOptions) {
         const seg = path.join(tmp, `seg${w}.mp4`);
         segments[w] = seg;
         await renderSegment({
-          projectId: job.projectId, format: opts.format, width, height, fps, from, to, offset: r0, out: seg, crf, preset,
+          projectId: job.projectId, format: opts.format, width, height, scale, fps, from, to, offset: r0, out: seg, encoder,
           onFrame: (n) => {
             done[w] = n;
             report();
@@ -176,13 +200,14 @@ async function runExport(job: ExportJob, opts: ExportOptions) {
     fs.writeFileSync(list, segments.filter(Boolean).map((s) => `file '${s}'`).join('\n'));
     const outDir = exportsDir(job.projectId);
     fs.mkdirSync(outDir, { recursive: true });
-    const name = `${slug(p.name)}_${opts.format.replace(':', 'x')}_${stamp()}.mp4`;
+    const res = `${Math.round(width * scale)}x${Math.round(height * scale)}`;
+    const name = `${slug(p.name)}_${opts.format.replace(':', 'x')}_${res}${codec === 'hevc' ? '_hevc' : ''}_${stamp()}.mp4`;
     const out = path.join(outDir, name);
     const audioFilter = opts.normalize ? ['-af', 'loudnorm=I=-14:TP=-1.5:LRA=11', '-ar', '48000'] : [];
     await run('ffmpeg', [
       '-y', '-f', 'concat', '-safe', '0', '-i', list, '-i', wav,
       '-map', '0:v:0', '-map', '1:a:0',
-      '-c:v', 'copy', ...audioFilter, '-c:a', 'aac', '-b:a', '256k',
+      '-c:v', 'copy', ...(codec === 'hevc' ? ['-tag:v', 'hvc1'] : []), ...audioFilter, '-c:a', 'aac', '-b:a', '256k',
       '-t', duration.toFixed(3),
       '-movflags', '+faststart', out,
     ]);
@@ -208,13 +233,13 @@ interface SegmentArgs {
   format: FormatId;
   width: number;
   height: number;
+  scale: number;
   fps: number;
   from: number;
   to: number;
   offset: number;
   out: string;
-  crf: number;
-  preset: string;
+  encoder: string[];
   onFrame: (n: number) => void;
   isCancelled: () => boolean;
 }
@@ -225,7 +250,8 @@ async function renderSegment(a: SegmentArgs) {
   const ff = spawn('ffmpeg', [
     '-hide_banner', '-y',
     '-f', 'image2pipe', '-framerate', String(a.fps), '-c:v', 'mjpeg', '-i', 'pipe:0',
-    '-c:v', 'libx264', '-preset', a.preset, '-crf', String(a.crf),
+    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+    ...a.encoder,
     '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
     '-r', String(a.fps), a.out,
   ]);
@@ -241,10 +267,7 @@ async function renderSegment(a: SegmentArgs) {
       if (m.type() === 'error') console.warn('[render page]', m.text());
     });
     page.on('pageerror', (e) => console.warn('[render page error]', e));
-    await page.setViewport({ width: a.width, height: a.height, deviceScaleFactor: 1 });
-    const url = `${CLIENT_URL}/?render=1&project=${encodeURIComponent(a.projectId)}&format=${encodeURIComponent(a.format)}`;
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForFunction('window.__studio && window.__studio.ready === true', { timeout: 120000 });
+    await openRenderPage(page, a.projectId, a.format, a.width, a.height, a.scale);
     for (let i = a.from; i < a.to; i++) {
       if (a.isCancelled()) throw new Error('cancelled');
       const t = a.offset + i / a.fps;
@@ -258,6 +281,34 @@ async function renderSegment(a: SegmentArgs) {
   } catch (e) {
     ff.kill('SIGKILL');
     throw e;
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+async function openRenderPage(page: import('puppeteer').Page, projectId: string, format: FormatId, width: number, height: number, scale: number) {
+  await page.setViewport({ width, height, deviceScaleFactor: scale });
+  const url = `${CLIENT_URL}/?render=1&project=${encodeURIComponent(projectId)}&format=${encodeURIComponent(format)}`;
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForFunction('window.__studio && window.__studio.ready === true', { timeout: 120000 });
+}
+
+/** Exporta un único fotograma en PNG (miniaturas de YouTube, portadas de Reels...). */
+export async function renderFrame(projectId: string, format: FormatId, time: number, scale = 1): Promise<{ file: string; url: string }> {
+  const p = loadProject(projectId);
+  const { width, height } = FORMATS[format];
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await openRenderPage(page, projectId, format, width, height, Math.min(2, Math.max(0.25, scale)));
+    await page.evaluate((tt) => (window as any).__studio.seek(tt), time);
+    const outDir = exportsDir(projectId);
+    fs.mkdirSync(outDir, { recursive: true });
+    const tc = time.toFixed(2).replace('.', 's');
+    const name = `${slug(p.name)}_${format.replace(':', 'x')}_fotograma_${tc}_${stamp()}.png`;
+    const file = path.join(outDir, name);
+    await page.screenshot({ type: 'png', path: file as `${string}.png` });
+    return { file, url: `/files/${projectId}/exports/${encodeURIComponent(name)}` };
   } finally {
     await page.close().catch(() => {});
   }

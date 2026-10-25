@@ -10,9 +10,11 @@ Los tipos exactos están en `shared/types.ts`. Resumen:
 - `clips[]`: lista plana; cada clip tiene `trackId`, `start` y `duration` (segundos de la línea de tiempo). Nunca se solapan dos clips en la misma pista.
   - `video` / `image`: `assetId`, `in` (segundo de la fuente), `speed`, `volume` (0–1+), `fadeIn`, `fadeOut`, `fit` (`cover|contain`),
     `framing` por formato `{ "9:16": { x, y, zoom } }` (x,y = punto de foco 0..1 de la fuente; zoom ≥ 1),
-    `transform` `{ x, y, scale, rotation, opacity }` (x,y en fracción del lienzo), `transitionIn` `{ type, duration }`, `color` `{ brightness, contrast, saturation, warmth }`, `kenBurns` (imágenes).
-  - `audio`: `assetId`, `in`, `speed`, `volume`, `fadeIn`, `fadeOut`, `duck` (bajar el volumen cuando hay voz; para música).
+    `transform` `{ x, y, scale, rotation, opacity }` (x,y en fracción del lienzo), `transitionIn` `{ type, duration }`, `color` `{ brightness, contrast, saturation, warmth }`, `look` (nombre del look aplicado), `kenBurns` (imágenes),
+    `crop` `{ l, t, r, b }` (fracción del lienzo), `radius` (px en lienzo de 1080), `border` `{ width, color }`, `shadow` (0..1), `enhance` (Mejorar voz).
+  - `audio`: `assetId`, `in`, `speed`, `volume`, `fadeIn`, `fadeOut`, `duck` (bajar el volumen cuando hay voz; para música), `enhance`.
   - `template`: `template` (id del catálogo), `props`, `transform`, `animIn`, `animOut`, `inDuration`, `outDuration`.
+  - Fotogramas clave (vídeo, imagen, audio y plantillas): `keyframes` `{ x?, y?, scale?, rotation?, opacity?, volume?: [{ t, v, ease? }] }`. `t` en segundos desde el inicio del clip; `ease`: `ease` (por defecto), `linear` o `hold`. Si una propiedad tiene claves, su valor de `transform`/`volume` se ignora.
   - `effect`: `effect` (id del catálogo), `props`. Afecta a todo lo que hay en las pistas **inferiores** mientras dura (como una capa de ajuste).
 - `captions`: `enabled`, `style` `{ preset, font, size, color, highlight, y (0..1), uppercase, maxWords }`, `segments[]` `{ id, start, end, text, words[{start,end,text}] }` en tiempo de la línea de tiempo.
 - `audio`: `{ duckLevel, master }`.
@@ -21,5 +23,7 @@ Los tipos exactos están en `shared/types.ts`. Resumen:
 Reglas prácticas:
 - El vídeo principal (talking head) va en la pista visual más baja (`v1`). Gráficos y efectos en las pistas superiores.
 - Para un punch-in: clip `effect` con `effect: "zoom"` encima del vídeo, `props: { scale: 1.2, x: 0.5, y: 0.38 }`.
+- Picture-in-picture: `transform: { scale: 0.36, x: 0.27, y: -0.25 }`, `radius: 36`, `shadow: 0.8`, `border: { width: 4, color: "#ffffff" }`.
+- Animar una entrada: `keyframes: { scale: [{ t: 0, v: 0.8 }, { t: 0.4, v: 1 }], opacity: [{ t: 0, v: 0 }, { t: 0.3, v: 1 }] }`.
 - Fuentes disponibles: `Inter Variable`, `Space Grotesk Variable`, `Bebas Neue`, `Playfair Display Variable`, `JetBrains Mono Variable`.
 - Los paneles de `split-screen` y `triptych` referencian medios por `assetId` con su `in`.

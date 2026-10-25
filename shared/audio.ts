@@ -2,6 +2,7 @@
 // para que lo que se oye en el editor sea lo que sale en el MP4.
 
 import type { AudioClip, MediaClip, Project } from './types';
+import { isAnimated, propAt } from './keyframes';
 
 export type AudibleClip = MediaClip | AudioClip;
 
@@ -21,7 +22,7 @@ export function isTrackAudible(p: Project, trackId: string): boolean {
 export function audibleClips(p: Project): AudibleClip[] {
   return p.clips.filter((c): c is AudibleClip => {
     if (c.type !== 'video' && c.type !== 'audio') return false;
-    if (c.volume <= 0 || !isTrackAudible(p, c.trackId)) return false;
+    if ((c.volume <= 0 && !isAnimated(c, 'volume')) || !isTrackAudible(p, c.trackId)) return false;
     const a = p.assets.find((x) => x.id === c.assetId);
     return !!a && a.hasAudio;
   });
@@ -59,7 +60,7 @@ export function duckFactor(regions: [number, number][], t: number, level: number
 export function clipGainAt(p: Project, clip: AudibleClip, t: number, regions?: [number, number][]): number {
   const local = t - clip.start;
   if (local < 0 || local > clip.duration) return 0;
-  let g = clip.volume * fadeEnvelope(local, clip.duration, clip.fadeIn, clip.fadeOut) * (p.audio?.master ?? 1);
+  let g = propAt(clip, 'volume', local, clip.volume) * fadeEnvelope(local, clip.duration, clip.fadeIn, clip.fadeOut) * (p.audio?.master ?? 1);
   if (clip.type === 'audio' && clip.duck) {
     g *= duckFactor(regions ?? voiceRegions(p), t, p.audio?.duckLevel ?? 0.22);
   }

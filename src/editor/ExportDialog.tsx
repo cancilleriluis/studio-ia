@@ -1,11 +1,38 @@
 import { useState } from 'react';
-import { CheckCircle2, Download, FolderOpen, Loader2, X, XCircle } from 'lucide-react';
+import { CheckCircle2, ClipboardCopy, Download, FolderOpen, Loader2, X, XCircle } from 'lucide-react';
 import type { FormatId } from '../../shared/types';
 import { FORMATS, FORMAT_IDS } from '../../shared/formats';
 import { projectDuration } from '../../shared/ops';
 import { api, type ExportJob } from '../api';
 import { useEditor } from '../store';
 import { formatSec } from './util';
+
+interface Preset {
+  name: string;
+  hint: string;
+  formats?: FormatId[];
+  fps: number;
+  quality: string;
+  scale: number;
+  codec: 'h264' | 'hevc';
+}
+
+const PRESETS: Preset[] = [
+  { name: 'YouTube 1080p', hint: '16:9 · 1920×1080 · H.264', formats: ['16:9'], fps: 30, quality: 'high', scale: 1, codec: 'h264' },
+  { name: 'YouTube 4K', hint: '16:9 · 3840×2160 · H.264', formats: ['16:9'], fps: 30, quality: 'high', scale: 2, codec: 'h264' },
+  { name: 'Reels · TikTok · Shorts', hint: '9:16 · 1080×1920', formats: ['9:16'], fps: 30, quality: 'high', scale: 1, codec: 'h264' },
+  { name: 'YouTube + Reels', hint: '16:9 y 9:16 a la vez', formats: ['16:9', '9:16'], fps: 30, quality: 'high', scale: 1, codec: 'h264' },
+  { name: 'HEVC ligero', hint: 'Formato actual · ~40 % menos peso', fps: 30, quality: 'high', scale: 1, codec: 'hevc' },
+  { name: 'Borrador rápido', hint: 'Mitad de resolución', fps: 30, quality: 'draft', scale: 0.5, codec: 'h264' },
+];
+
+function tc(t: number) {
+  const s = Math.floor(t);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
 
 const STATUS: Record<ExportJob['status'], string> = {
   queued: 'En cola',
@@ -31,14 +58,39 @@ export function ExportDialog() {
   const [fps, setFps] = useState(project.fps);
   const [quality, setQuality] = useState('high');
   const [normalize, setNormalize] = useState(true);
+  const [scale, setScale] = useState(1);
+  const [codec, setCodec] = useState<'h264' | 'hevc'>('h264');
+  const inPoint = useEditor((s) => s.inPoint);
+  const outPoint = useEditor((s) => s.outPoint);
+  const hasRange = inPoint !== null && outPoint !== null && outPoint > inPoint;
+  const [useRange, setUseRange] = useState(hasRange);
   const [busy, setBusy] = useState(false);
+  const markers = [...project.markers].sort((a, b) => a.time - b.time);
+  const chapters = markers.length
+    ? (markers[0].time > 0.5 ? [{ time: 0, label: 'Intro' }, ...markers] : markers).map((m) => `${tc(m.time)} ${m.label}`).join('\n')
+    : '';
+  const applyPreset = (p: Preset) => {
+    setFormats(p.formats ?? [project.format]);
+    setFps(p.fps);
+    setQuality(p.quality);
+    setScale(p.scale);
+    setCodec(p.codec);
+  };
   const dur = projectDuration(project);
   const list = Object.values(jobs).filter((j) => j.projectId === project.id).sort((a, b) => b.startedAt - a.startedAt);
 
   const start = async () => {
     setBusy(true);
     try {
-      const created = await api.export(project.id, { formats, fps, quality, normalize });
+      const created = await api.export(project.id, {
+        formats,
+        fps,
+        quality,
+        normalize,
+        scale,
+        codec,
+        range: useRange && hasRange ? [inPoint!, outPoint!] : undefined,
+      });
       useEditor.setState({ jobs: { ...useEditor.getState().jobs, ...Object.fromEntries(created.map((j) => [j.id, j])) } });
     } catch (e: any) {
       st.notify(String(e.message), 'error');
@@ -60,6 +112,16 @@ export function ExportDialog() {
           <button className="icon-btn" onClick={() => st.set({ exportOpen: false })}>
             <X size={16} />
           </button>
+        </div>
+
+        <div className="section-title">Preajustes</div>
+        <div className="preset-grid">
+          {PRESETS.map((p) => (
+            <button key={p.name} className="preset" onClick={() => applyPreset(p)}>
+              <b>{p.name}</b>
+              <span>{p.hint}</span>
+            </button>
+          ))}
         </div>
 
         <div className="section-title">Formatos (puedes elegir varios)</div>
@@ -107,6 +169,40 @@ export function ExportDialog() {
           </div>
         </div>
         <div className="field">
+          <label>Resolución</label>
+          <div className="seg">
+            {[
+              [0.5, '½'],
+              [1, '1080p'],
+              [2, '4K'],
+            ].map(([v, l]) => (
+              <button key={v} className={scale === v ? 'on' : ''} onClick={() => setScale(v as number)}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <label>Códec</label>
+          <div className="seg">
+            <button className={codec === 'h264' ? 'on' : ''} onClick={() => setCodec('h264')}>
+              H.264 (compatible)
+            </button>
+            <button className={codec === 'hevc' ? 'on' : ''} onClick={() => setCodec('hevc')}>
+              HEVC (ligero)
+            </button>
+          </div>
+        </div>
+        {hasRange && (
+          <div className="field">
+            <label>Rango</label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)' }}>
+              <input type="checkbox" checked={useRange} onChange={(e) => setUseRange(e.target.checked)} />
+              Solo entre entrada y salida ({formatSec(outPoint! - inPoint!)})
+            </label>
+          </div>
+        )}
+        <div className="field">
           <label>Volumen</label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)' }}>
             <input type="checkbox" checked={normalize} onChange={(e) => setNormalize(e.target.checked)} />
@@ -117,6 +213,19 @@ export function ExportDialog() {
         <button className="btn primary block" style={{ height: 38, marginTop: 8 }} disabled={!formats.length || busy || dur <= 0} onClick={start}>
           <Download size={15} /> Exportar {formats.length > 1 ? `${formats.length} versiones` : formats[0]}
         </button>
+
+        {chapters && (
+          <>
+            <div className="section-title" style={{ marginTop: 20 }}>
+              Capítulos para YouTube
+              <button className="btn sm ghost" onClick={() => { navigator.clipboard.writeText(chapters); st.notify('Capítulos copiados'); }}>
+                <ClipboardCopy size={12} /> Copiar
+              </button>
+            </div>
+            <textarea readOnly value={chapters} rows={Math.min(8, chapters.split('\n').length)} style={{ width: '100%', fontFamily: 'JetBrains Mono Variable, monospace', fontSize: 12 }} />
+            <div className="hint">Pégalos en la descripción. Salen de tus marcadores (M); YouTube pide al menos 3 y de 10 s o más.</div>
+          </>
+        )}
 
         {list.length > 0 && <div className="section-title" style={{ marginTop: 20 }}>Exportaciones</div>}
         {list.map((j) => (

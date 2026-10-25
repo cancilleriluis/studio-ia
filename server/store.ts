@@ -80,6 +80,7 @@ const DERIVED: (keyof Asset)[] = [
 
 /** Guardado desde la interfaz: respeta lo que el servidor ha calculado de los medios. */
 export function saveFromClient(incoming: Project): Project {
+  snapshot(incoming.id, 'auto');
   const current = loadProject(incoming.id);
   const byId = new Map(current.assets.map((a) => [a.id, a]));
   incoming.assets = incoming.assets.map((a) => {
@@ -164,4 +165,66 @@ function watchProject(id: string) {
     }, 150);
   });
   watchers.set(id, w);
+}
+
+/* ───────── Historial de versiones ───────── */
+
+const historyDir = (id: string) => path.join(projectDir(id), 'history');
+const lastSnapshot = new Map<string, number>();
+const SNAPSHOT_EVERY = 3 * 60 * 1000;
+const KEEP = 80;
+
+/** Guarda una copia del project.json actual. 'auto' respeta un intervalo mínimo. */
+export function snapshot(id: string, reason: 'auto' | 'ia' | 'restaurar' = 'auto'): void {
+  const file = projectFile(id);
+  if (!fs.existsSync(file)) return;
+  const now = Date.now();
+  if (reason === 'auto' && now - (lastSnapshot.get(id) ?? 0) < SNAPSHOT_EVERY) return;
+  lastSnapshot.set(id, now);
+  const dir = historyDir(id);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(file, path.join(dir, `${now}_${reason}.json`));
+  const all = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+  for (const f of all.slice(0, Math.max(0, all.length - KEEP))) fs.rmSync(path.join(dir, f));
+}
+
+export function listHistory(id: string) {
+  const dir = historyDir(safeId(id));
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => /^\d+_\w+\.json$/.test(f))
+    .sort()
+    .reverse()
+    .map((f) => {
+      const [time, reason] = f.replace('.json', '').split('_');
+      let clips = 0;
+      let duration = 0;
+      try {
+        const p = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as Project;
+        clips = p.clips.length;
+        duration = Math.max(0, ...p.clips.map((c) => c.start + c.duration));
+      } catch {
+        /* versión dañada */
+      }
+      return { file: f, time: Number(time), reason, clips, duration };
+    });
+}
+
+export function restoreHistory(id: string, file: string): Project {
+  if (!/^\d+_\w+\.json$/.test(file)) throw new Error('Versión no válida');
+  const src = path.join(historyDir(safeId(id)), file);
+  if (!fs.existsSync(src)) throw new Error('Versión no encontrada');
+  snapshot(id, 'restaurar');
+  const p = normalizeProject(JSON.parse(fs.readFileSync(src, 'utf8')));
+  p.id = id;
+  // Conservar los medios actuales (los derivados pueden haber cambiado desde entonces)
+  const current = loadProject(id);
+  const known = new Map(current.assets.map((a) => [a.id, a]));
+  p.assets = p.assets.filter((a) => known.has(a.id)).map((a) => ({ ...known.get(a.id)!, name: a.name }));
+  for (const a of current.assets) if (!p.assets.some((x) => x.id === a.id)) p.assets.push(a);
+  p.updatedAt = Date.now();
+  writeProject(p);
+  broadcast(id, 'project', p);
+  return p;
 }

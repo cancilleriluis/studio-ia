@@ -3,6 +3,7 @@
 // tiempo vaya fluida con cualquier códec (HEVC, ProRes, 4K...).
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Asset, AssetType } from '../shared/types';
 import { uid } from '../shared/id';
@@ -168,4 +169,14 @@ async function makeWaveform(dir: string, src: string, base: string) {
   const file = `.proxy/${base}.wave.json`;
   fs.writeFileSync(path.join(dir, file), JSON.stringify({ rate: PEAKS_PER_SECOND, peaks }));
   return file;
+}
+
+/** Resuelve una ruta a importar y exige que esté en la carpeta personal o en un disco externo. */
+export function resolveImportPath(raw: string): string {
+  const expanded = raw.replace(/^~(?=$|\/)/, os.homedir());
+  if (!fs.existsSync(expanded)) throw new Error(`No existe: ${expanded}`);
+  const src = fs.realpathSync(expanded);
+  const allowed = [os.homedir(), '/Volumes'].some((root) => src === root || src.startsWith(root + path.sep));
+  if (!allowed || !fs.statSync(src).isFile()) throw new Error('Solo se pueden importar archivos de tu carpeta personal o de discos externos');
+  return src;
 }

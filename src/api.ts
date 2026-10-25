@@ -62,11 +62,18 @@ export const api = {
   transcribe: (id: string, assetId: string, language = 'auto') =>
     req<{ ok: true }>('POST', `/api/projects/${id}/assets/${assetId}/transcribe`, { language }),
   transcript: (id: string, assetId: string) => req<TranscriptFile | null>('GET', `/api/projects/${id}/assets/${assetId}/transcript`),
-  export: (id: string, opts: { formats: FormatId[]; fps: number; quality: string; normalize: boolean; range?: [number, number] }) =>
+  export: (
+    id: string,
+    opts: { formats: FormatId[]; fps: number; quality: string; normalize: boolean; range?: [number, number]; scale?: number; codec?: 'h264' | 'hevc' },
+  ) =>
     req<ExportJob[]>('POST', `/api/projects/${id}/export`, opts),
   exports: (id: string) => req<ExportJob[]>('GET', `/api/projects/${id}/exports`),
   cancelJob: (jobId: string) => req('POST', `/api/jobs/${jobId}/cancel`),
   reveal: (path: string) => req('POST', '/api/reveal', { path }),
+  frame: (id: string, time: number, format: FormatId, scale = 1) =>
+    req<{ file: string; url: string }>('POST', `/api/projects/${id}/frame`, { time, format, scale }),
+  history: (id: string) => req<{ file: string; time: number; reason: string; clips: number; duration: number }[]>('GET', `/api/projects/${id}/history`),
+  restore: (id: string, file: string) => req('POST', `/api/projects/${id}/history/restore`, { file }),
   ai: (id: string, message: string, context?: string) => req<AiTurn>('POST', `/api/projects/${id}/ai`, { message, context }),
   aiReset: (id: string) => req('POST', `/api/projects/${id}/ai/reset`),
 };

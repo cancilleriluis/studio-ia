@@ -81,6 +81,25 @@ export interface ColorAdjust {
   warmth: number; // -1..1
 }
 
+/** Propiedades animables con fotogramas clave. */
+export type KfProp = 'x' | 'y' | 'scale' | 'rotation' | 'opacity' | 'volume';
+
+export interface Keyframe {
+  t: number; // segundos desde el inicio del clip
+  v: number;
+  ease?: 'ease' | 'linear' | 'hold'; // interpolación hacia el siguiente
+}
+
+export type Keyframes = Partial<Record<KfProp, Keyframe[]>>;
+
+/** Recorte en fracción del lienzo (0..0.5 por lado). */
+export interface Crop {
+  l: number;
+  t: number;
+  r: number;
+  b: number;
+}
+
 export interface ClipBase {
   id: string;
   trackId: string;
@@ -104,6 +123,17 @@ export interface MediaClip extends ClipBase {
   color?: ColorAdjust;
   /** Movimiento lento automático tipo Ken Burns (solo imágenes). */
   kenBurns?: boolean;
+  keyframes?: Keyframes;
+  crop?: Crop;
+  /** Radio de las esquinas en px de un lienzo de 1080 (picture-in-picture). */
+  radius?: number;
+  border?: { width: number; color: string };
+  /** Sombra 0..1 */
+  shadow?: number;
+  /** Mejorar voz: filtro de graves, reducción de ruido, compresor y presencia. */
+  enhance?: boolean;
+  /** Look de color aplicado (solo informativo para la interfaz). */
+  look?: string;
 }
 
 export interface AudioClip extends ClipBase {
@@ -116,6 +146,8 @@ export interface AudioClip extends ClipBase {
   fadeOut: number;
   /** Bajar automáticamente el volumen cuando hay voz. */
   duck: boolean;
+  keyframes?: Keyframes;
+  enhance?: boolean;
 }
 
 export type AnimId =
@@ -139,6 +171,7 @@ export interface TemplateClip extends ClipBase {
   animOut: AnimId;
   inDuration: number;
   outDuration: number;
+  keyframes?: Keyframes;
 }
 
 export interface EffectClip extends ClipBase {

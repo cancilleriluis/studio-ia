@@ -23,6 +23,8 @@ import {
   EPS,
   addTrack,
   clipEnd,
+  createMediaClip,
+  findFreeTrack,
   deleteClips,
   isFree,
   maxSourceDuration,
@@ -32,9 +34,11 @@ import {
   trimClip,
 } from '../../shared/ops';
 import { getTemplate, getEffect } from '../../shared/registry';
+import { keyTimes, moveKeysAt, removeKey } from '../../shared/keyframes';
 import { mediaFileUrl } from '../engine/media';
 import { useEditor } from '../store';
 import { CLIP_COLORS, addAssetAt, addEffectAt, addTemplateAt, formatTC, removeSilences } from './util';
+import { Meters } from './Meters';
 
 const RULER_H = 26;
 const CAP_H = 30;
@@ -116,9 +120,10 @@ interface ClipViewProps {
   selected: boolean;
   razor: boolean;
   onPointerDown: (e: React.PointerEvent, clip: Clip, mode: 'move' | 'l' | 'r') => void;
+  onKeyPointerDown: (e: React.PointerEvent, clip: Clip, t: number) => void;
 }
 
-const ClipView = memo(function ClipView({ clip, project, zoom, height, selected, razor, onPointerDown }: ClipViewProps) {
+const ClipView = memo(function ClipView({ clip, project, zoom, height, selected, razor, onPointerDown, onKeyPointerDown }: ClipViewProps) {
   const left = clip.start * zoom;
   const width = Math.max(4, clip.duration * zoom);
   const color = CLIP_COLORS[clip.type];
@@ -146,6 +151,12 @@ const ClipView = memo(function ClipView({ clip, project, zoom, height, selected,
       style={{ left, width, background: bg, borderColor: `color-mix(in srgb, ${color} 70%, transparent)` }}
       onPointerDown={(e) => onPointerDown(e, clip, 'move')}
       onDoubleClick={() => useEditor.getState().set({ rightTab: 'inspector' })}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        const s = useEditor.getState();
+        if (!s.selection.includes(clip.id)) s.select([clip.id]);
+        s.set({ ctxMenu: { x: e.clientX, y: e.clientY, clipId: clip.id } });
+      }}
     >
       {asset && clip.type === 'video' && asset.filmstrip && (
         <Filmstrip projectId={project.id} asset={asset} clip={clip} zoom={zoom} width={width} height={inner} />
@@ -172,6 +183,19 @@ const ClipView = memo(function ClipView({ clip, project, zoom, height, selected,
         {icon}
         {width > 40 ? label : ''}
       </div>
+      {selected &&
+        keyTimes(clip).map((t) => (
+          <div
+            key={t}
+            className="kf-dot"
+            style={{ left: t * zoom }}
+            title="Fotograma clave · arrastra para moverlo · ⌥ clic para borrarlo"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              onKeyPointerDown(e, clip, t);
+            }}
+          />
+        ))}
       {!razor && (
         <>
           <div className="clip-handle l" onPointerDown={(e) => { e.stopPropagation(); onPointerDown(e, clip, 'l'); }} />
@@ -233,10 +257,21 @@ function Playhead({ zoom, scrollRef }: { zoom: number; scrollRef: React.RefObjec
   return <div className="playhead" style={{ left: x }} />;
 }
 
+function IORange({ zoom }: { zoom: number }) {
+  const i = useEditor((s) => s.inPoint);
+  const o = useEditor((s) => s.outPoint);
+  if (i === null && o === null) return null;
+  const a = i ?? 0;
+  const b = o ?? a;
+  if (b <= a) return <div className="tl-io" style={{ left: a * zoom, width: 2 }} />;
+  return <div className="tl-io" style={{ left: a * zoom, width: (b - a) * zoom }} />;
+}
+
 /* ───────── Línea de tiempo ───────── */
 
 interface DragState {
-  mode: 'move' | 'l' | 'r' | 'scrub';
+  mode: 'move' | 'l' | 'r' | 'scrub' | 'key';
+  keyT?: number;
   startX: number;
   startY: number;
   clipId: string;
@@ -355,12 +390,40 @@ export function Timeline() {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }, []);
 
+  const onKeyPointerDown = useCallback((e: React.PointerEvent, clip: Clip, t: number) => {
+    if (e.button !== 0) return;
+    const s = useEditor.getState();
+    s.pause();
+    if (e.altKey) {
+      s.commit((p) => {
+        const c = p.clips.find((x) => x.id === clip.id);
+        if (c) (['x', 'y', 'scale', 'rotation', 'opacity', 'volume'] as const).forEach((k) => removeKey(c, k, t));
+      });
+      return;
+    }
+    drag.current = { mode: 'key', keyT: t, startX: e.clientX, startY: e.clientY, clipId: clip.id, originals: [], lastValid: 0, started: false };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
     const s = useEditor.getState();
     if (d.mode === 'scrub') {
       s.setTime(Math.max(0, timeAtClient(e.clientX)));
+      return;
+    }
+    if (d.mode === 'key') {
+      const dx = e.clientX - d.startX;
+      if (!d.started) {
+        if (Math.abs(dx) < 3) return;
+        d.started = true;
+        s.beginTransient();
+      }
+      s.transient((p) => {
+        const c = p.clips.find((x) => x.id === d.clipId);
+        if (c) moveKeysAt(c, d.keyT!, Math.min(c.duration, Math.max(0, d.keyT! + dx / s.zoom)));
+      });
       return;
     }
     const dx = e.clientX - d.startX;
@@ -424,6 +487,10 @@ export function Timeline() {
     const d = drag.current;
     drag.current = null;
     setSnapX(null);
+    if (d?.mode === 'key' && !d.started) {
+      const c = useEditor.getState().project!.clips.find((x) => x.id === d.clipId);
+      if (c) useEditor.getState().setTime(c.start + d.keyT!);
+    }
     if (d?.started) useEditor.getState().endTransient();
   };
 
@@ -439,12 +506,23 @@ export function Timeline() {
     setDropTrack(null);
     const raw = e.dataTransfer.getData(DRAG_MIME);
     if (!raw) return;
-    const item = JSON.parse(raw) as { kind: string; id: string };
+    const item = JSON.parse(raw) as { kind: string; id: string; in?: number; out?: number };
     const [t] = snap(Math.max(0, timeAtClient(e.clientX)), snapCandidates(new Set()));
     if (item.kind === 'asset') {
       const a = project.assets.find((x) => x.id === item.id);
       const wantAudio = a?.type === 'audio';
-      addAssetAt(item.id, t, (track.kind === 'audio') === wantAudio ? track.id : undefined);
+      if (item.in !== undefined && item.out !== undefined && a) {
+        const trackOk = (track.kind === 'audio') === wantAudio;
+        let id = '';
+        st.commit((p) => {
+          const c = createMediaClip(p, a, t, trackOk ? track.id : undefined);
+          c.in = item.in!;
+          c.duration = Math.max(0.1, item.out! - item.in!);
+          if (!isFree(p, c.trackId, c.start, c.duration, [c.id])) c.trackId = findFreeTrack(p, c.type === 'audio' ? 'audio' : 'visual', c.start, c.duration);
+          id = c.id;
+        });
+        st.select([id]);
+      } else addAssetAt(item.id, t, (track.kind === 'audio') === wantAudio ? track.id : undefined);
     } else if (item.kind === 'template') addTemplateAt(item.id, t, track.kind === 'visual' ? track.id : undefined);
     else if (item.kind === 'effect') addEffectAt(item.id, t, track.kind === 'visual' ? track.id : undefined);
     else if (item.kind === 'transition') {
@@ -588,14 +666,17 @@ export function Timeline() {
                       selected={selSet.has(c.id)}
                       razor={tool === 'razor'}
                       onPointerDown={onClipPointerDown}
+                      onKeyPointerDown={onKeyPointerDown}
                     />
                   ))}
               </div>
             ))}
+            <IORange zoom={zoom} />
             <Playhead zoom={zoom} scrollRef={scrollRef} />
             {snapX !== null && <div className="snap-line" style={{ left: snapX * zoom }} />}
           </div>
         </div>
+        <Meters />
       </div>
     </div>
   );

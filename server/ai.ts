@@ -27,7 +27,7 @@ import { FORMAT_IDS } from '../shared/formats';
 import { AI_MODEL, ROOT } from './config';
 import { loadProject, mediaDir, mutateProject } from './store';
 import { readAllTranscripts, readTranscript, transcribeAsset } from './transcribe';
-import { importFile } from './media';
+import { importFile, resolveImportPath } from './media';
 
 type ToolInput = Record<string, any>;
 
@@ -321,8 +321,7 @@ async function runTool(projectId: string, name: string, input: ToolInput): Promi
       await transcribeAsset(projectId, input.assetId, input.language ?? 'auto');
       return 'Transcripción lista.';
     case 'import_media': {
-      const src = String(input.path);
-      if (!fs.existsSync(src)) return `No existe: ${src}`;
+      const src = resolveImportPath(String(input.path));
       const a = await importFile(projectId, src, path.basename(src));
       return `Importado como ${a.id} (${a.type}, ${a.duration.toFixed(1)} s). Se está procesando.`;
     }
@@ -371,14 +370,14 @@ async function runTool(projectId: string, name: string, input: ToolInput): Promi
       const c = getClip(p0, input.clipId);
       if (!c || !isMedia(c)) throw new Error('clipId no válido');
       const asset = p0.assets.find((a) => a.id === c.assetId)!;
-      const opts = { minSilence: input.minSilence ?? 0.45, pad: input.pad ?? 0.1 };
-      const t = readTranscript(projectId, asset.id);
+      const opts = { minSilence: input.minSilence ?? 0.3, pad: input.pad ?? 0.08, sensitivity: 0.5 };
+      const w = loadPeaks(projectId, asset.waveform);
       let ranges: [number, number][];
-      if (t?.words.length) ranges = silencesFromWords(t.words, asset.duration, opts);
+      if (w) ranges = silencesFromPeaks(w.peaks, w.rate, opts);
       else {
-        const w = loadPeaks(projectId, asset.waveform);
-        if (!w) throw new Error('No hay forma de onda ni transcripción para este medio');
-        ranges = silencesFromPeaks(w.peaks, w.rate, opts);
+        const t = readTranscript(projectId, asset.id);
+        if (!t?.words.length) throw new Error('No hay forma de onda ni transcripción para este medio');
+        ranges = silencesFromWords(t.words, asset.duration, opts);
       }
       const removed = edit((p) => removeSourceRanges(p, c.id, ranges));
       return `Eliminados ${removed.toFixed(2)} s de silencios en ${ranges.length} tramos.`;

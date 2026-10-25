@@ -9,8 +9,15 @@ Editor de vídeo local con motion graphics e IA integrada, hecho a medida para v
 - **Audio**: volumen, fundidos, velocidad, ducking automático de la música bajo la voz y normalización a −14 LUFS.
 - **Subtítulos automáticos** con Whisper local, palabra a palabra, en 5 estilos (Pop, Karaoke, Vidrio, Limpio, Minimal) y editables.
 - **Quitar silencios** (jump cuts) en un clic.
+- **Fotogramas clave** con cronómetro por propiedad (posición, escala, rotación, opacidad, volumen), rombos arrastrables en la línea de tiempo y navegación entre claves.
+- **Caja de transformación** en el monitor: mover, escalar y rotar desde el centro del elemento; **recorte, esquinas, borde y sombra** con un clic para *picture-in-picture*.
+- **Monitor de origen** con entrada/salida e **insertar / sobrescribir**; **levantar / extraer** con marcas en el programa; **menú contextual**, **desvincular audio** y desplazamiento fino de clips.
+- **Audio con Web Audio**: medidores VU, ganancia hasta 200 % y **Mejorar voz** (graves, reducción de ruido, compresor y presencia) en preview y exportación.
+- **Looks de color** de un clic (Cálido, Frío, Cine, Vivo, Película, B/N, Noir).
+- **Historial de versiones** automático (también antes de cada cambio de la IA) con restauración.
 - **IA**: Claude edita el proyecto por ti (ver más abajo).
-- **Exportación MP4** fotograma a fotograma con el mismo motor que la previsualización: lo que ves es lo que exportas.
+- **Exportación MP4** fotograma a fotograma con el mismo motor que la previsualización: lo que ves es lo que exportas. Preajustes (YouTube 1080p/4K, Reels…), H.264 o HEVC acelerado por el Mac, rango I/O, capítulos de YouTube a partir de los marcadores y **captura del fotograma en PNG** para miniaturas.
+- **Seguro por defecto**: el servidor solo escucha en `127.0.0.1` y rechaza peticiones de otros orígenes.
 
 ## Requisitos
 
@@ -67,6 +74,11 @@ projects/<id>/
 | ⌘Z · ⇧⌘Z | Deshacer · rehacer |
 | ⌘C · ⌘V · ⌘D | Copiar · pegar en el cabezal · duplicar |
 | M | Marcador |
+| I · O · ⌥X | Entrada · salida · borrar marcas (en el monitor activo) |
+| , · . | Insertar · sobrescribir desde el monitor de origen |
+| ; · ' | Levantar · extraer el tramo entre entrada y salida |
+| ⌥ ← / → (⇧) | Desplazar los clips seleccionados 1 fotograma (1 s) |
+| Clic derecho | Menú del clip: desvincular audio, Mejorar voz, PiP, transiciones… |
 | ⌘ + rueda · + / − | Zoom de la línea de tiempo |
 | ⌥ + rueda (monitor) | Zoom del encuadre / escala del gráfico |
 

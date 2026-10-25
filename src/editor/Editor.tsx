@@ -7,6 +7,7 @@ import {
   Clapperboard,
   CloudOff,
   Download,
+  History,
   Film,
   Layers,
   Loader2,
@@ -24,10 +25,13 @@ import {
   deleteClips,
   duplicateClip,
   getClip,
+  liftRange,
+  nudgeClips,
   projectDuration,
   setFormat,
   splitAt,
 } from '../../shared/ops';
+import { placeFromSource, sourceControls } from './SourceMonitor';
 import { uid } from '../../shared/id';
 import { useEditor } from '../store';
 import { api } from '../api';
@@ -40,6 +44,8 @@ import { CaptionsPanel } from './CaptionsPanel';
 import { Inspector } from './Inspector';
 import { AIPanel } from './AIPanel';
 import { ExportDialog } from './ExportDialog';
+import { ContextMenu } from './ContextMenu';
+import { HistoryDialog } from './HistoryDialog';
 
 let clipboard: Clip[] = [];
 
@@ -116,12 +122,70 @@ function useShortcuts() {
         return;
       }
       if (mod) return;
+      const src = st.monitorMode === 'source' && st.source;
+
+      // Monitor de origen activo
+      if (src) {
+        if (k === ' ') {
+          e.preventDefault();
+          sourceControls.toggle?.();
+          return;
+        }
+        if (k === 'arrowleft' || k === 'arrowright') {
+          e.preventDefault();
+          sourceControls.step?.((k === 'arrowleft' ? -1 : 1) * (e.shiftKey ? 1 : 1 / fps));
+          return;
+        }
+        if (k === 'i' || k === 'o') {
+          st.set({ source: { ...src, [k === 'i' ? 'in' : 'out']: src.time } });
+          return;
+        }
+      }
+
+      if (e.altKey && (k === 'arrowleft' || k === 'arrowright') && st.selection.length) {
+        e.preventDefault();
+        const d = (k === 'arrowleft' ? -1 : 1) * (e.shiftKey ? 1 : 1 / fps);
+        st.commit((d2) => nudgeClips(d2, st.selection, d));
+        return;
+      }
+      if (e.altKey && k === 'x') {
+        st.set({ inPoint: null, outPoint: null });
+        return;
+      }
 
       switch (k) {
         case ' ':
           e.preventDefault();
           st.toggle();
           break;
+        case 'i':
+          st.set({ inPoint: st.time });
+          break;
+        case 'o':
+          st.set({ outPoint: st.time });
+          break;
+        case ',':
+          placeFromSource('insert');
+          break;
+        case '.':
+          placeFromSource('overwrite');
+          break;
+        case ';':
+        case "'": {
+          const a = st.inPoint;
+          const b = st.outPoint;
+          if (a === null || b === null || b <= a) {
+            st.notify('Marca entrada (I) y salida (O) primero', 'error');
+            break;
+          }
+          if (k === ';') st.commit((d) => liftRange(d, a, b));
+          else {
+            st.commit((d) => cutRange(d, a, b));
+            st.set({ inPoint: null, outPoint: null });
+            st.setTime(a);
+          }
+          break;
+        }
         case 'k':
           st.pause();
           break;
@@ -275,6 +339,9 @@ function TopBar() {
         ))}
       </div>
       <div className="spacer" />
+      <button className="icon-btn" title="Historial de versiones" onClick={() => st.set({ historyOpen: true })}>
+        <History size={16} />
+      </button>
       <button className="btn" onClick={() => st.set({ rightTab: 'ai' })}>
         <Sparkles size={14} color="var(--accent)" /> IA
       </button>
@@ -338,6 +405,8 @@ function Toast() {
 export function Editor({ projectId }: { projectId: string }) {
   const project = useEditor((s) => s.project);
   const exportOpen = useEditor((s) => s.exportOpen);
+  const ctxMenu = useEditor((s) => s.ctxMenu);
+  const historyOpen = useEditor((s) => s.historyOpen);
   const [error, setError] = useState('');
   const [tlH, setTlH] = useState(() => Number(localStorage.getItem('studio.tlh')) || 330);
   const dragRef = useRef<{ y: number; h: number } | null>(null);
@@ -414,6 +483,8 @@ export function Editor({ projectId }: { projectId: string }) {
       />
       <Timeline />
       {exportOpen && <ExportDialog />}
+      {historyOpen && <HistoryDialog />}
+      {ctxMenu && <ContextMenu menu={ctxMenu} onClose={() => useEditor.getState().set({ ctxMenu: null })} />}
       <Toast />
     </div>
   );

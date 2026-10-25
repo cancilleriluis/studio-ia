@@ -3,6 +3,7 @@ import type { Asset, Project, TranscriptFile } from '../shared/types';
 import { normalizeProject, projectDuration } from '../shared/ops';
 import { api, type ExportJob, type ServerStatus } from './api';
 import { mediaFileUrl } from './engine/media';
+import { resumeAudio } from './engine/audioEngine';
 
 const HISTORY = 200;
 
@@ -15,8 +16,23 @@ interface Waveform {
   peaks: number[];
 }
 
+export interface SourceState {
+  assetId: string;
+  time: number;
+  in: number | null;
+  out: number | null;
+}
+
 interface EditorState {
   project: Project | null;
+  monitorMode: 'program' | 'source';
+  source: SourceState | null;
+  /** Marcas de entrada/salida del programa (I/O). */
+  inPoint: number | null;
+  outPoint: number | null;
+  /** Pistas destino para insertar/sobrescribir. */
+  targetVideo: string;
+  targetAudio: string;
   past: Project[];
   future: Project[];
   saving: 'idle' | 'pending' | 'saving' | 'error';
@@ -34,6 +50,8 @@ interface EditorState {
   transcripts: Record<string, TranscriptFile>;
   waveforms: Record<string, Waveform>;
   exportOpen: boolean;
+  ctxMenu: { x: number; y: number; clipId: string } | null;
+  historyOpen: boolean;
   toast: { text: string; kind: 'info' | 'error' } | null;
 
   load: (id: string) => Promise<void>;
@@ -82,6 +100,12 @@ function scheduleSave() {
 
 export const useEditor = create<EditorState>((set, get) => ({
   project: null,
+  monitorMode: 'program',
+  source: null,
+  inPoint: null,
+  outPoint: null,
+  targetVideo: 'v1',
+  targetAudio: 'a1',
   past: [],
   future: [],
   saving: 'idle',
@@ -99,6 +123,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   transcripts: {},
   waveforms: {},
   exportOpen: false,
+  ctxMenu: null,
+  historyOpen: false,
   toast: null,
 
   async load(id) {
@@ -114,6 +140,12 @@ export const useEditor = create<EditorState>((set, get) => ({
       jobs: Object.fromEntries(jobs.map((j) => [j.id, j])),
       transcripts: {},
       waveforms: {},
+      monitorMode: 'program',
+      source: null,
+      inPoint: null,
+      outPoint: null,
+      targetVideo: project.tracks.filter((t) => t.kind === 'visual').slice(-1)[0]?.id ?? 'v1',
+      targetAudio: project.tracks.find((t) => t.kind === 'audio')?.id ?? 'a1',
     });
     events = new EventSource(`/api/projects/${id}/events`);
     events.addEventListener('project', (e) => get().replaceFromServer(JSON.parse((e as MessageEvent).data)));
@@ -220,6 +252,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!p || get().playing) return;
     const dur = projectDuration(p);
     if (get().time >= dur - 0.05) set({ time: 0 });
+    resumeAudio();
     set({ playing: true });
     let last = performance.now();
     const tick = (now: number) => {

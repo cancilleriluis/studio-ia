@@ -10,6 +10,7 @@ Editor de vídeo local de Luis (React + Vite en `src/`, servidor Express en `ser
 - Transcripciones: `projects/<id>/media/<asset.transcript>` (palabras en tiempo de la **fuente**). Para tiempos en la línea de tiempo usa `wordsOnTimeline` de `shared/captions.ts`.
 - Con el servidor en marcha también hay API: `POST /api/projects/:id/import-path {path}`, `POST /api/projects/:id/assets/:assetId/transcribe`, `POST /api/projects/:id/export {formats, fps, quality}`.
 - Estilo de Luis: vidrio esmerilado, cromo líquido, grotesca en negrita, etiquetas blancas, ritmo de Reels. En talking head: punch-ins de 1.12–1.3 en frases clave, foco en la cara, rótulos en la zona libre de arriba, subtítulos "pop" hacia y≈0.73 en 9:16.
+- Quitar silencios: usa `silencesFromPeaks` (energía del audio, umbral adaptativo) sobre la forma de onda del medio; los tiempos de palabra de Whisper no son fiables para detectar pausas.
 - Orden de pistas: las visuales van primero en `tracks` y la primera es la de arriba. Los efectos afectan a las pistas inferiores: ponlos justo encima del vídeo y los gráficos por encima de los efectos.
 
 ## Desarrollo

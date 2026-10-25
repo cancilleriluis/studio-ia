@@ -1,11 +1,24 @@
-import { AudioWaveform, Copy, Crosshair, Keyboard, RotateCcw, Trash2 } from 'lucide-react';
-import type { AnimId, AudioClip, Clip, ColorAdjust, EffectClip, MediaClip, Project, TemplateClip, TransitionId } from '../../shared/types';
+import { AudioWaveform, ChevronLeft, ChevronRight, Copy, Crosshair, Diamond, Keyboard, RotateCcw, Timer, Trash2 } from 'lucide-react';
+import type { AnimId, AudioClip, Clip, ColorAdjust, EffectClip, KfProp, MediaClip, Project, TemplateClip, TransitionId } from '../../shared/types';
+import { clearKeys, hasKeyAt, isAnimated, kfList, propAt, removeKey, setKey } from '../../shared/keyframes';
 import { ANIMS, TRANSITIONS, getEffect, getTemplate } from '../../shared/registry';
 import { FORMATS } from '../../shared/formats';
 import { defaultTransform, deleteClips, duplicateClip, maxSourceDuration } from '../../shared/ops';
 import { useEditor } from '../store';
 import { ColorInput, FieldControl, NumberInput, Toggle, useBinder, type Binder } from './controls';
 import { CLIP_COLORS, removeSilences } from './util';
+import { applyPip } from './ContextMenu';
+
+const LOOKS: { id: string; name: string; c: ColorAdjust; swatch: string }[] = [
+  { id: 'natural', name: 'Natural', c: { brightness: 1, contrast: 1, saturation: 1, warmth: 0 }, swatch: 'linear-gradient(135deg,#8a8f98,#c9ccd2)' },
+  { id: 'warm', name: 'Cálido', c: { brightness: 1.03, contrast: 1.06, saturation: 1.12, warmth: 0.32 }, swatch: 'linear-gradient(135deg,#c76b2b,#f3c27a)' },
+  { id: 'cool', name: 'Frío', c: { brightness: 1.02, contrast: 1.06, saturation: 0.95, warmth: -0.32 }, swatch: 'linear-gradient(135deg,#2b5fc7,#9cc8f3)' },
+  { id: 'cine', name: 'Cine', c: { brightness: 0.97, contrast: 1.18, saturation: 0.88, warmth: 0.14 }, swatch: 'linear-gradient(135deg,#0f4c5c,#e09f3e)' },
+  { id: 'vivid', name: 'Vivo', c: { brightness: 1.04, contrast: 1.12, saturation: 1.38, warmth: 0.05 }, swatch: 'linear-gradient(135deg,#e5383b,#ffd166,#06d6a0)' },
+  { id: 'film', name: 'Película', c: { brightness: 1.06, contrast: 0.86, saturation: 0.8, warmth: 0.14 }, swatch: 'linear-gradient(135deg,#a68a64,#ede0d4)' },
+  { id: 'bw', name: 'B/N', c: { brightness: 1.02, contrast: 1.2, saturation: 0, warmth: 0 }, swatch: 'linear-gradient(135deg,#111,#eee)' },
+  { id: 'noir', name: 'Noir', c: { brightness: 0.94, contrast: 1.5, saturation: 0, warmth: 0 }, swatch: 'linear-gradient(135deg,#000,#777)' },
+];
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -43,6 +56,79 @@ function Num({ b, label, value, min, max, step, set }: { b: Binder; label: strin
   );
 }
 
+/** Campo numérico animable: cronómetro para activar fotogramas clave, como en Premiere. */
+function AnimNum({
+  b,
+  clip,
+  prop,
+  label,
+  base,
+  min,
+  max,
+  step,
+  setBase,
+}: {
+  b: Binder;
+  clip: Clip;
+  prop: KfProp;
+  label: string;
+  base: number;
+  min: number;
+  max: number;
+  step: number;
+  setBase: (v: number) => void;
+}) {
+  const time = useEditor((s) => s.time);
+  const local = Math.min(clip.duration, Math.max(0, time - clip.start));
+  const inside = time >= clip.start - 1e-6 && time <= clip.start + clip.duration + 1e-6;
+  const animated = isAnimated(clip, prop);
+  const value = animated ? propAt(clip, prop, local, base) : base;
+  const onKey = animated && hasKeyAt(clip, prop, local);
+  const keys = kfList(clip, prop) ?? [];
+  const prev = [...keys].reverse().find((k) => k.t < local - 1e-3);
+  const next = keys.find((k) => k.t > local + 1e-3);
+  const st = useEditor.getState();
+  const set = (v: number) => {
+    if (!animated) setBase(v);
+    else if (inside) editClip(b, clip.id, (c) => setKey(c, prop, local, v));
+  };
+  return (
+    <div className="field">
+      <label className="kf-label">
+        <button
+          className={`kf-btn ${animated ? 'on' : ''}`}
+          title={animated ? 'Quitar animación (borra los fotogramas clave)' : 'Animar: crea un fotograma clave en el cabezal'}
+          onClick={() => editClip(b, clip.id, (c) => (animated ? clearKeys(c, prop) : setKey(c, prop, inside ? local : 0, base)))}
+        >
+          <Timer size={12} />
+        </button>
+        {label}
+      </label>
+      <div className="kf-row">
+        <NumberInput value={value} min={min} max={max} step={step} onBegin={b.begin} onEnd={b.end} onChange={set} />
+        {animated && (
+          <div className="kf-nav">
+            <button className="kf-btn" disabled={!prev} title="Fotograma clave anterior" onClick={() => prev && st.setTime(clip.start + prev.t)}>
+              <ChevronLeft size={12} />
+            </button>
+            <button
+              className={`kf-btn ${onKey ? 'on' : ''}`}
+              disabled={!inside}
+              title={onKey ? 'Quitar fotograma clave' : 'Añadir fotograma clave'}
+              onClick={() => editClip(b, clip.id, (c) => (onKey ? removeKey(c, prop, local) : setKey(c, prop, local, value)))}
+            >
+              <Diamond size={11} fill={onKey ? 'currentColor' : 'none'} />
+            </button>
+            <button className="kf-btn" disabled={!next} title="Fotograma clave siguiente" onClick={() => next && st.setTime(clip.start + next.t)}>
+              <ChevronRight size={12} />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TransformSection({ clip, b }: { clip: MediaClip | TemplateClip; b: Binder }) {
   const t = clip.transform;
   const set = (k: keyof typeof t) => (v: number) => editClip<MediaClip>(b, clip.id, (c) => (c.transform[k] = v));
@@ -50,16 +136,16 @@ function TransformSection({ clip, b }: { clip: MediaClip | TemplateClip; b: Bind
     <Section
       title="Transformación"
       action={
-        <button className="icon-btn sm" title="Restablecer" onClick={() => editClip<MediaClip>(b, clip.id, (c) => (c.transform = defaultTransform()))}>
+        <button className="icon-btn sm" title="Restablecer" onClick={() => editClip<MediaClip>(b, clip.id, (c) => { c.transform = defaultTransform(); (['x', 'y', 'scale', 'rotation', 'opacity'] as const).forEach((k) => clearKeys(c, k)); })}>
           <RotateCcw size={12} />
         </button>
       }
     >
-      <Num b={b} label="Posición X" value={t.x} min={-1} max={1} step={0.005} set={set('x')} />
-      <Num b={b} label="Posición Y" value={t.y} min={-1} max={1} step={0.005} set={set('y')} />
-      <Num b={b} label="Escala" value={t.scale} min={0.1} max={4} step={0.01} set={set('scale')} />
-      <Num b={b} label="Rotación" value={t.rotation} min={-180} max={180} step={0.5} set={set('rotation')} />
-      <Num b={b} label="Opacidad" value={t.opacity} min={0} max={1} step={0.01} set={set('opacity')} />
+      <AnimNum b={b} clip={clip} prop="x" label="Posición X" base={t.x} min={-1} max={1} step={0.005} setBase={set('x')} />
+      <AnimNum b={b} clip={clip} prop="y" label="Posición Y" base={t.y} min={-1} max={1} step={0.005} setBase={set('y')} />
+      <AnimNum b={b} clip={clip} prop="scale" label="Escala" base={t.scale} min={0.1} max={4} step={0.01} setBase={set('scale')} />
+      <AnimNum b={b} clip={clip} prop="rotation" label="Rotación" base={t.rotation} min={-180} max={180} step={0.5} setBase={set('rotation')} />
+      <AnimNum b={b} clip={clip} prop="opacity" label="Opacidad" base={t.opacity} min={0} max={1} step={0.01} setBase={set('opacity')} />
     </Section>
   );
 }
@@ -90,9 +176,15 @@ function TimingSection({ clip, b, fps }: { clip: Clip; b: Binder; fps: number })
 function AudioSection({ clip, b }: { clip: MediaClip | AudioClip; b: Binder }) {
   return (
     <Section title="Audio">
-      <Num b={b} label="Volumen" value={clip.volume} min={0} max={2} step={0.01} set={(v) => editClip<AudioClip>(b, clip.id, (c) => (c.volume = v))} />
+      <AnimNum b={b} clip={clip} prop="volume" label="Volumen" base={clip.volume} min={0} max={2} step={0.01} setBase={(v) => editClip<AudioClip>(b, clip.id, (c) => (c.volume = v))} />
       <Num b={b} label="Fundido entrada" value={clip.fadeIn} min={0} max={5} step={0.05} set={(v) => editClip<AudioClip>(b, clip.id, (c) => (c.fadeIn = v))} />
       <Num b={b} label="Fundido salida" value={clip.fadeOut} min={0} max={5} step={0.05} set={(v) => editClip<AudioClip>(b, clip.id, (c) => (c.fadeOut = v))} />
+      <Field label="Mejorar voz">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Toggle value={!!clip.enhance} onChange={(v) => editClip<AudioClip>(b, clip.id, (c) => (c.enhance = v))} />
+          <span className="hint">Quita ruido y graves, comprime y da presencia</span>
+        </div>
+      </Field>
       {clip.type === 'audio' && (
         <Field label="Ducking">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -179,6 +271,44 @@ function MediaInspector({ clip, project, b }: { clip: MediaClip; project: Projec
           <Num b={b} label="Duración" value={clip.transitionIn.duration} min={0.1} max={2.5} step={0.05} set={(v) => editClip<MediaClip>(b, clip.id, (c) => c.transitionIn && (c.transitionIn.duration = v))} />
         )}
       </Section>
+      <Section
+        title="Recorte y marco"
+        action={
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button className="btn sm" title="Esquina, bordes redondeados y sombra" onClick={() => editClip<MediaClip>(b, clip.id, applyPip)}>
+              PiP
+            </button>
+            <button
+              className="btn sm ghost"
+              title="Quitar recorte y marco"
+              onClick={() => editClip<MediaClip>(b, clip.id, (c) => { delete c.crop; delete c.radius; delete c.border; delete c.shadow; })}
+            >
+              <RotateCcw size={12} />
+            </button>
+          </div>
+        }
+      >
+        {(['l', 't', 'r', 'b'] as const).map((k) => (
+          <Num
+            key={k}
+            b={b}
+            label={{ l: 'Recorte izq.', t: 'Recorte arriba', r: 'Recorte der.', b: 'Recorte abajo' }[k]}
+            value={clip.crop?.[k] ?? 0}
+            min={0}
+            max={0.49}
+            step={0.005}
+            set={(v) => editClip<MediaClip>(b, clip.id, (c) => (c.crop = { l: 0, t: 0, r: 0, b: 0, ...(c.crop ?? {}), [k]: v }))}
+          />
+        ))}
+        <Num b={b} label="Esquinas" value={clip.radius ?? 0} min={0} max={300} step={1} set={(v) => editClip<MediaClip>(b, clip.id, (c) => (c.radius = v))} />
+        <Num b={b} label="Borde" value={clip.border?.width ?? 0} min={0} max={30} step={0.5} set={(v) => editClip<MediaClip>(b, clip.id, (c) => (c.border = { color: c.border?.color ?? '#ffffff', width: v }))} />
+        {!!clip.border?.width && (
+          <Field label="Color borde">
+            <ColorInput value={clip.border.color} onBegin={b.begin} onEnd={b.end} onChange={(v) => editClip<MediaClip>(b, clip.id, (c) => c.border && (c.border.color = v))} />
+          </Field>
+        )}
+        <Num b={b} label="Sombra" value={clip.shadow ?? 0} min={0} max={1} step={0.01} set={(v) => editClip<MediaClip>(b, clip.id, (c) => (c.shadow = v))} />
+      </Section>
       {clip.type === 'video' && (
         <Section title="Reproducción">
           <SpeedField clip={clip} b={b} />
@@ -207,6 +337,18 @@ function MediaInspector({ clip, project, b }: { clip: MediaClip; project: Projec
           </button>
         }
       >
+        <div className="looks">
+          {LOOKS.map((l) => (
+            <button
+              key={l.id}
+              className={`look ${clip.look === l.id ? 'on' : ''}`}
+              onClick={() => editClip<MediaClip>(b, clip.id, (c) => { if (l.id === 'natural') { delete c.color; delete c.look; } else { c.color = { ...l.c }; c.look = l.id; } })}
+            >
+              <span style={{ background: l.swatch }} />
+              {l.name}
+            </button>
+          ))}
+        </div>
         <Num b={b} label="Brillo" value={col.brightness} min={0.3} max={2} step={0.01} set={setCol('brightness')} />
         <Num b={b} label="Contraste" value={col.contrast} min={0.3} max={2} step={0.01} set={setCol('contrast')} />
         <Num b={b} label="Saturación" value={col.saturation} min={0} max={3} step={0.01} set={setCol('saturation')} />

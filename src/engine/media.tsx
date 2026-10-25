@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react';
 import type { Asset } from '../../shared/types';
 import { renderMode, track } from './renderSync';
+import { setChannel } from './audioEngine';
 
 export function assetUrl(projectId: string, asset: Asset, original = false): string {
   const rel = !original && asset.proxy ? asset.proxy : asset.file;
@@ -49,12 +50,25 @@ interface VideoProps {
   playing: boolean;
   rate?: number;
   volume?: number;
+  enhance?: boolean;
   style?: CSSProperties;
 }
 
+/** Envía el sonido del elemento al mezclador Web Audio solo si alguna vez ha de sonar. */
+function routeAudio(el: HTMLMediaElement, attached: { current: boolean }, gain: number, enhance: boolean) {
+  if (!attached.current && gain <= 0.001) {
+    el.muted = true;
+    return;
+  }
+  attached.current = true;
+  el.muted = false;
+  setChannel(el, gain, enhance);
+}
+
 /** Vídeo sincronizado con el reloj del editor (o con el fotograma exacto al exportar). */
-export function VideoView({ src, sourceTime, active, playing, rate = 1, volume = 0, style }: VideoProps) {
+export function VideoView({ src, sourceTime, active, playing, rate = 1, volume = 0, enhance = false, style }: VideoProps) {
   const ref = useRef<HTMLVideoElement>(null);
+  const attached = useRef(false);
 
   useLayoutEffect(() => {
     const v = ref.current;
@@ -66,8 +80,7 @@ export function VideoView({ src, sourceTime, active, playing, rate = 1, volume =
     }
     v.playbackRate = rate;
     const audible = active && playing && volume > 0.001;
-    v.muted = !audible;
-    v.volume = Math.max(0, Math.min(1, volume));
+    routeAudio(v, attached, audible ? volume : 0, enhance);
     if (playing && active) {
       if (v.paused) {
         v.currentTime = sourceTime;
@@ -106,13 +119,14 @@ export function ImageView({ src, style }: { src: string; style?: CSSProperties }
 }
 
 /** Audio de previsualización (la exportación mezcla el audio en el servidor). */
-export function AudioView({ src, sourceTime, active, playing, rate = 1, volume = 1 }: Omit<VideoProps, 'style'>) {
+export function AudioView({ src, sourceTime, active, playing, rate = 1, volume = 1, enhance = false }: Omit<VideoProps, 'style'>) {
   const ref = useRef<HTMLAudioElement>(null);
+  const attached = useRef(false);
   useEffect(() => {
     const a = ref.current;
     if (!a) return;
     a.playbackRate = rate;
-    a.volume = Math.max(0, Math.min(1, volume));
+    routeAudio(a, attached, active && playing ? volume : 0, enhance);
     if (playing && active) {
       if (a.paused) {
         a.currentTime = sourceTime;

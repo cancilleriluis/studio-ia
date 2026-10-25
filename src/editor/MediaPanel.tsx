@@ -6,6 +6,7 @@ import { mediaFileUrl, assetUrl } from '../engine/media';
 import { useEditor } from '../store';
 import { DRAG_MIME } from './Timeline';
 import { addAssetAt, formatSec } from './util';
+import { openSource } from './SourceMonitor';
 
 function Thumb({ projectId, asset }: { projectId: string; asset: Asset }) {
   if (asset.type === 'image')
@@ -112,8 +113,8 @@ export function MediaPanel() {
           className="asset"
           draggable={a.status === 'ready'}
           onDragStart={(e) => e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ kind: 'asset', id: a.id }))}
-          onDoubleClick={() => a.status === 'ready' && addAssetAt(a.id)}
-          title="Doble clic o arrastra a la línea de tiempo"
+          onDoubleClick={() => openSource(a.id)}
+          title="Doble clic: abrir en el monitor de origen · arrastra a una pista"
         >
           <Thumb projectId={project.id} asset={a} />
           <div style={{ minWidth: 0 }}>

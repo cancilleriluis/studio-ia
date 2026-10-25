@@ -14,18 +14,35 @@ import {
   mutateProject,
   projectDir,
   safeId,
+  listHistory,
+  restoreHistory,
   saveFromClient,
+  snapshot,
   subscribe,
 } from './store';
-import { importFile } from './media';
+import { importFile, resolveImportPath } from './media';
 import { readTranscript, transcribeAsset, whisperStatus } from './transcribe';
-import { cancelExport, jobs, startExport } from './render';
+import { cancelExport, jobs, renderFrame, startExport } from './render';
 import { aiAvailable, chat, resetChat } from './ai';
 
 process.on('unhandledRejection', (e) => console.error('[studio] error no capturado', e));
 process.on('uncaughtException', (e) => console.error('[studio] excepción no capturada', e));
 
 const app = express();
+
+// Solo accesible desde este Mac: bloquea otras máquinas de la red, DNS rebinding
+// y peticiones lanzadas por páginas web de otros orígenes.
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+app.use((req, res, next) => {
+  const host = req.headers.host ?? '';
+  const origin = req.headers.origin;
+  if (!LOCAL_HOST.test(host) || (origin && origin !== 'null' && !LOCAL_ORIGIN.test(origin))) {
+    res.status(403).end('Solo se permiten peticiones locales');
+    return;
+  }
+  next();
+});
 app.use(express.json({ limit: '50mb' }));
 
 const upload = multer({ dest: path.join(os.tmpdir(), 'studio-uploads') });
@@ -88,8 +105,7 @@ app.post('/api/projects/:id/upload', upload.array('files'), wrap(async (req) => 
 }));
 
 app.post('/api/projects/:id/import-path', wrap(async (req) => {
-  const src = String(req.body?.path ?? '').replace(/^~(?=$|\/)/, os.homedir());
-  if (!fs.existsSync(src)) throw new Error(`No existe: ${src}`);
+  const src = resolveImportPath(String(req.body?.path ?? ''));
   return importFile(pid(req), src, path.basename(src));
 }));
 
@@ -113,8 +129,16 @@ app.post('/api/projects/:id/export', wrap((req) => {
       quality: req.body?.quality ?? 'high',
       normalize: req.body?.normalize !== false,
       range: req.body?.range,
+      scale: Number(req.body?.scale) || 1,
+      codec: req.body?.codec === 'hevc' ? 'hevc' : 'h264',
     }),
   );
+}));
+
+app.post('/api/projects/:id/frame', wrap(async (req) => {
+  const id = pid(req);
+  const format = (FORMAT_IDS.includes(req.body?.format) ? req.body.format : loadProject(id).format) as FormatId;
+  return renderFrame(id, format, Math.max(0, Number(req.body?.time) || 0), Number(req.body?.scale) || 1);
 }));
 
 app.get('/api/projects/:id/exports', wrap((req) => [...jobs.values()].filter((j) => j.projectId === pid(req))));
@@ -137,8 +161,15 @@ app.post('/api/projects/:id/rename', wrap((req) => {
   return { ok: true };
 }));
 
+app.get('/api/projects/:id/history', wrap((req) => listHistory(pid(req))));
+app.post('/api/projects/:id/history/restore', wrap((req) => {
+  restoreHistory(pid(req), String(req.body?.file ?? ''));
+  return { ok: true };
+}));
+
 app.post('/api/projects/:id/ai', wrap(async (req) => {
   if (!aiAvailable()) throw new Error('Falta ANTHROPIC_API_KEY en el fichero .env para usar el chat integrado.');
+  snapshot(pid(req), 'ia');
   return chat(pid(req), String(req.body?.message ?? ''), req.body?.context);
 }));
 app.post('/api/projects/:id/ai/reset', wrap((req) => {
@@ -163,7 +194,7 @@ if (IS_PROD) {
   app.get(/^(?!\/api|\/files).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  Studio IA · servidor en http://localhost:${PORT}`);
   console.log(`  Interfaz:  ${CLIENT_URL}`);
   console.log(`  Proyectos: ${PROJECTS_DIR}\n`);

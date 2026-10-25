@@ -7,6 +7,7 @@ import type { TranscriptFile, Word } from '../shared/types';
 import { run } from './ffmpeg';
 import { findBinary, findWhisperModel } from './config';
 import { mediaDir, updateAsset, loadProject } from './store';
+import { alignWords, speechSegments } from '../shared/silence';
 
 export function whisperStatus() {
   return { binary: findBinary('whisper-cli') ?? null, model: findWhisperModel() ?? null };
@@ -36,7 +37,12 @@ export async function transcribeAsset(projectId: string, assetId: string, langua
     const threads = String(Math.max(2, Math.min(8, os.cpus().length - 2)));
     await run(binary, ['-m', model, '-f', wav, '-l', language, '-ml', '1', '-sow', '-oj', '-of', outBase, '-t', threads, '-np']);
     const json = JSON.parse(fs.readFileSync(`${outBase}.json`, 'utf8'));
-    const words = parseWords(json.transcription ?? []);
+    let words = parseWords(json.transcription ?? []);
+    const wave = asset.waveform ? path.join(dir, asset.waveform) : '';
+    if (wave && fs.existsSync(wave)) {
+      const w = JSON.parse(fs.readFileSync(wave, 'utf8')) as { rate: number; peaks: number[] };
+      words = alignWords(words, speechSegments(w.peaks, w.rate));
+    }
     const transcript: TranscriptFile = { language: json.result?.language, words };
     const base = path.basename(asset.file, path.extname(asset.file));
     const rel = `.proxy/${base}.transcript.json`;

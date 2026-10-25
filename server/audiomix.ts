@@ -9,6 +9,9 @@ import { decodePcm } from './ffmpeg';
 import { mediaDir } from './store';
 
 const RATE = 48000;
+/** Equivalente en ffmpeg de la cadena «Mejorar voz» de la previsualización (más reducción de ruido). */
+export const ENHANCE_FILTER =
+  'highpass=f=80,afftdn=nf=-25,equalizer=f=220:t=q:w=1:g=-2.5,equalizer=f=3500:t=q:w=0.9:g=3,acompressor=threshold=-22dB:ratio=3.5:attack=5:release=120:knee=6:makeup=2.6';
 const BLOCK = 64;
 
 export async function mixProjectAudio(p: Project, duration: number, outFile: string): Promise<void> {
@@ -25,6 +28,7 @@ export async function mixProjectAudio(p: Project, duration: number, outFile: str
       sampleRate: RATE,
       channels: 2,
       tempo: clip.speed,
+      filters: clip.enhance ? ENHANCE_FILTER : undefined,
     });
     const offset = Math.round(clip.start * RATE);
     const n = Math.min(pcm.length / 2, Math.round(clip.duration * RATE), frames - offset);

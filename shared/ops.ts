@@ -18,6 +18,7 @@ import { uid } from './id';
 import { defaultsFor, getEffect, getTemplate } from './registry';
 import { buildSegments, wordsOnTimeline } from './captions';
 import { isVertical } from './formats';
+import { shiftKeys } from './keyframes';
 
 export const EPS = 1e-4;
 
@@ -300,6 +301,7 @@ export function splitClip(p: Project, id: string, t: number): string | null {
   right.start = t;
   right.duration = c.duration - leftDur;
   c.duration = leftDur;
+  shiftKeys(right, -leftDur);
   if (isMedia(c) && isMedia(right)) {
     right.in = c.in + leftDur * c.speed;
     c.fadeOut = 0;
@@ -412,6 +414,7 @@ export function cutRange(p: Project, t0: number, t1: number): void {
         if (right.type !== 'audio') delete (right as MediaClip).transitionIn;
       }
       c.duration = leftDur;
+      shiftKeys(right, -(t1 - a));
       next.push(c, right);
     } else if (a < t0) {
       c.duration = t0 - a;
@@ -420,6 +423,7 @@ export function cutRange(p: Project, t0: number, t1: number): void {
       // Empieza dentro del tramo y termina después
       const cut = t1 - a;
       if (isMedia(c)) c.in += cut * c.speed;
+      shiftKeys(c, -cut);
       c.start = t0;
       c.duration -= cut;
       next.push(c);
@@ -506,6 +510,7 @@ export function trimClip(p: Project, id: string, edge: 'start' | 'end', t: numbe
     if (isMedia(c) && c.type !== 'image') start = Math.max(start, c.start - c.in / c.speed);
     const delta = start - c.start;
     if (isMedia(c)) c.in += delta * c.speed;
+    shiftKeys(c, -delta);
     c.start = start;
     c.duration -= delta;
   }
@@ -537,4 +542,94 @@ export function setFormat(p: Project, format: FormatId): void {
     p.captions.style.y = isVertical(format) ? 0.7 : 0.82;
     p.captions.style.maxWords = isVertical(format) ? 3 : 6;
   }
+}
+
+/** Abre un hueco de `len` segundos en t en todas las pistas no bloqueadas (edición de inserción). */
+export function insertGap(p: Project, t: number, len: number): void {
+  for (const c of [...p.clips]) {
+    if (trackOf(p, c.trackId)?.locked) continue;
+    if (c.start < t - EPS && clipEnd(c) > t + EPS) splitClip(p, c.id, t);
+  }
+  shiftAfter(p, t, len);
+}
+
+/** Vacía el tramo [t0, t1] de una pista sin desplazar nada (sobrescritura). */
+export function clearRange(p: Project, trackId: string, t0: number, t1: number): void {
+  for (const c of [...p.clips]) {
+    if (c.trackId !== trackId) continue;
+    if (c.start < t0 - EPS && clipEnd(c) > t0 + EPS) splitClip(p, c.id, t0);
+  }
+  for (const c of [...p.clips]) {
+    if (c.trackId !== trackId) continue;
+    if (c.start < t1 - EPS && clipEnd(c) > t1 + EPS) splitClip(p, c.id, t1);
+  }
+  p.clips = p.clips.filter((c) => !(c.trackId === trackId && c.start >= t0 - EPS && clipEnd(c) <= t1 + EPS));
+}
+
+/** Levantar: quita el contenido entre t0 y t1 de las pistas no bloqueadas dejando el hueco. */
+export function liftRange(p: Project, t0: number, t1: number): void {
+  for (const tr of p.tracks) if (!tr.locked) clearRange(p, tr.id, t0, t1);
+  p.captions.segments = p.captions.segments.filter((s) => s.end <= t0 + EPS || s.start >= t1 - EPS);
+}
+
+/** Coloca un tramo [srcIn, srcOut] de un medio en t, insertando o sobrescribiendo. */
+export function placeSource(
+  p: Project,
+  asset: Asset,
+  srcIn: number,
+  srcOut: number,
+  t: number,
+  mode: 'insert' | 'overwrite',
+  videoTrack: string,
+  audioTrack: string,
+): string {
+  const len = Math.max(0.1, srcOut - srcIn);
+  const trackId = asset.type === 'audio' ? audioTrack : videoTrack;
+  const tr = trackOf(p, trackId);
+  if (!tr || tr.locked) throw new Error('La pista destino está bloqueada o no existe');
+  if (mode === 'insert') insertGap(p, t, len);
+  else clearRange(p, trackId, t, t + len);
+  const c = createMediaClip(p, asset, t, trackId);
+  // createMediaClip puede elegir otra pista si no está libre; forzamos la destino
+  c.trackId = trackId;
+  c.in = srcIn;
+  c.duration = len;
+  return c.id;
+}
+
+/** Desvincular audio: pasa el sonido de un clip de vídeo a un clip de audio independiente. */
+export function unlinkAudio(p: Project, clipId: string): string | null {
+  const c = getClip(p, clipId);
+  if (!c || c.type !== 'video' || c.volume <= 0) return null;
+  const a = getAsset(p, c.assetId);
+  if (!a?.hasAudio) return null;
+  const audio: AudioClip = {
+    id: uid('c_'),
+    type: 'audio',
+    trackId: findFreeTrack(p, 'audio', c.start, c.duration),
+    start: c.start,
+    duration: c.duration,
+    assetId: c.assetId,
+    in: c.in,
+    speed: c.speed,
+    volume: c.volume,
+    fadeIn: c.fadeIn,
+    fadeOut: c.fadeOut,
+    duck: false,
+    enhance: c.enhance,
+    name: `${a.name} (audio)`,
+  };
+  if (c.keyframes?.volume) audio.keyframes = { volume: structuredClone(c.keyframes.volume) };
+  p.clips.push(audio);
+  c.volume = 0;
+  if (c.keyframes) delete c.keyframes.volume;
+  return audio.id;
+}
+
+/** Desplaza clips un número de segundos si el destino está libre. */
+export function nudgeClips(p: Project, ids: string[], delta: number): void {
+  const moving = p.clips.filter((c) => ids.includes(c.id));
+  if (moving.some((c) => c.start + delta < -EPS || trackOf(p, c.trackId)?.locked)) return;
+  const ok = moving.every((c) => isFree(p, c.trackId, c.start + delta, c.duration, ids));
+  if (ok) for (const c of moving) c.start = Math.max(0, c.start + delta);
 }
