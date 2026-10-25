@@ -1,0 +1,10 @@
+node_modules
+dist
+projects/
+exports/
+.env
+.DS_Store
+*.log
+.cache
+models/
+.claude/
