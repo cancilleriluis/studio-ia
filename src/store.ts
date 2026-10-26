@@ -61,7 +61,7 @@ interface EditorState {
   transient: (fn: (p: Project) => void) => void;
   endTransient: () => void;
   replaceFromServer: (p: Project) => void;
-  upsertAsset: (a: Asset) => void;
+  upsertAsset: (a: Asset, force?: boolean) => void;
   undo: () => void;
   redo: () => void;
   setTime: (t: number) => void;
@@ -73,6 +73,23 @@ interface EditorState {
   notify: (text: string, kind?: 'info' | 'error') => void;
   ensureTranscript: (assetId: string) => Promise<TranscriptFile | null>;
   ensureWaveform: (assetId: string) => Promise<Waveform | null>;
+}
+
+/**
+ * Combina el estado de un medio con una actualización. Las respuestas HTTP y los
+ * eventos en vivo pueden llegar desordenados: un medio ya listo nunca vuelve a
+ * «procesando» ni pierde progreso por un mensaje atrasado.
+ */
+function mergeAsset(prev: Asset | undefined, next: Asset, force = false): Asset {
+  if (!prev || force) return { ...prev, ...next };
+  if (prev.status !== 'processing' && next.status === 'processing') {
+    const { status, progress, proxy, filmstrip, waveform, error, ...rest } = next;
+    return { ...prev, ...rest, transcriptStatus: next.transcriptStatus ?? prev.transcriptStatus };
+  }
+  if (prev.status === 'processing' && next.status === 'processing') {
+    return { ...prev, ...next, progress: Math.max(prev.progress ?? 0, next.progress ?? 0) };
+  }
+  return { ...prev, ...next };
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -148,6 +165,17 @@ export const useEditor = create<EditorState>((set, get) => ({
       targetAudio: project.tracks.find((t) => t.kind === 'audio')?.id ?? 'a1',
     });
     events = new EventSource(`/api/projects/${id}/events`);
+    // Si la conexión en vivo se corta (p. ej. reinicio del servidor), al volver se
+    // resincronizan los medios con el disco para no perder ningún «listo».
+    let opened = false;
+    events.addEventListener('open', () => {
+      if (opened)
+        api
+          .project(id)
+          .then((fresh) => fresh.assets.forEach((a) => get().upsertAsset(a, true)))
+          .catch(() => {});
+      opened = true;
+    });
     events.addEventListener('project', (e) => get().replaceFromServer(JSON.parse((e as MessageEvent).data)));
     events.addEventListener('asset', (e) => get().upsertAsset(JSON.parse((e as MessageEvent).data)));
     events.addEventListener('job', (e) => {
@@ -212,14 +240,16 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ transcripts: tr });
   },
 
-  upsertAsset(a) {
+  upsertAsset(a, force = false) {
     const p = get().project;
     if (!p) return;
-    const exists = p.assets.some((x) => x.id === a.id);
-    const assets = exists ? p.assets.map((x) => (x.id === a.id ? { ...x, ...a } : x)) : [...p.assets, a];
+    const merged = mergeAsset(p.assets.find((x) => x.id === a.id), a, force);
     // Los cambios de medios no entran en el historial de deshacer
-    const patch = (q: Project) => ({ ...q, assets: q.assets.some((x) => x.id === a.id) ? q.assets.map((x) => (x.id === a.id ? { ...x, ...a } : x)) : [...q.assets, a] });
-    set({ project: { ...p, assets }, past: get().past.map(patch), future: get().future.map(patch) });
+    const patch = (q: Project) => ({
+      ...q,
+      assets: q.assets.some((x) => x.id === a.id) ? q.assets.map((x) => (x.id === a.id ? merged : x)) : [...q.assets, merged],
+    });
+    set({ project: patch(p), past: get().past.map(patch), future: get().future.map(patch) });
     if (a.transcriptStatus === 'ready') {
       const tr = { ...get().transcripts };
       delete tr[a.id];

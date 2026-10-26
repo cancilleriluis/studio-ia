@@ -8,7 +8,7 @@ import path from 'node:path';
 import type { Asset, AssetType } from '../shared/types';
 import { uid } from '../shared/id';
 import { decodePcm, ffmpegWithProgress, probe, run } from './ffmpeg';
-import { broadcast, mediaDir, mutateProject, updateAsset } from './store';
+import { broadcast, listProjects, loadProject, mediaDir, mutateProject, updateAsset } from './store';
 
 const VIDEO_EXT = ['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi', '.mts', '.mxf', '.hevc', '.3gp'];
 const AUDIO_EXT = ['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.opus', '.aiff', '.aif', '.caf'];
@@ -179,4 +179,27 @@ export function resolveImportPath(raw: string): string {
   const allowed = [os.homedir(), '/Volumes'].some((root) => src === root || src.startsWith(root + path.sep));
   if (!allowed || !fs.statSync(src).isFile()) throw new Error('Solo se pueden importar archivos de tu carpeta personal o de discos externos');
   return src;
+}
+
+/**
+ * Al arrancar el servidor: retoma los medios que se quedaron a medias por un
+ * reinicio y libera las transcripciones que ya no se están ejecutando.
+ */
+export function resumePendingAssets(): void {
+  for (const summary of listProjects()) {
+    const id = summary!.id;
+    let p;
+    try {
+      p = loadProject(id);
+    } catch {
+      continue;
+    }
+    for (const a of p.assets) {
+      if (a.status === 'processing' && fs.existsSync(path.join(mediaDir(id), a.file))) {
+        console.log(`[media] retomando ${a.file} (${id})`);
+        enqueue(() => processAsset(id, a, a.fps ?? 30));
+      }
+      if (a.transcriptStatus === 'processing') updateAsset(id, a.id, { transcriptStatus: 'none' });
+    }
+  }
 }

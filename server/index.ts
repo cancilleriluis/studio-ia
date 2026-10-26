@@ -20,7 +20,7 @@ import {
   snapshot,
   subscribe,
 } from './store';
-import { importFile, resolveImportPath } from './media';
+import { importFile, resolveImportPath, resumePendingAssets } from './media';
 import { readTranscript, transcribeAsset, whisperStatus } from './transcribe';
 import { cancelExport, jobs, renderFrame, startExport } from './render';
 import { aiAvailable, chat, resetChat } from './ai';
@@ -207,4 +207,5 @@ app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  Studio IA · servidor en http://localhost:${PORT}`);
   console.log(`  Interfaz:  ${CLIENT_URL}`);
   console.log(`  Proyectos: ${PROJECTS_DIR}\n`);
+  resumePendingAssets();
 });
