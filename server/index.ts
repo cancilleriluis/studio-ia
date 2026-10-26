@@ -37,7 +37,15 @@ const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 app.use((req, res, next) => {
   const host = req.headers.host ?? '';
   const origin = req.headers.origin;
-  if (!LOCAL_HOST.test(host) || (origin && origin !== 'null' && !LOCAL_ORIGIN.test(origin))) {
+  const site = req.headers['sec-fetch-site'];
+  const blocked =
+    !LOCAL_HOST.test(host) ||
+    // "null" lo envían iframes aislados y documentos locales: nunca es nuestra interfaz
+    (origin !== undefined && !LOCAL_ORIGIN.test(origin)) ||
+    // El navegador marca así las peticiones lanzadas desde otras webs (también <img>, <video>...)
+    site === 'cross-site' ||
+    site === 'same-site';
+  if (blocked) {
     res.status(403).end('Solo se permiten peticiones locales');
     return;
   }
@@ -149,7 +157,8 @@ app.post('/api/jobs/:jobId/cancel', wrap((req) => {
 
 app.post('/api/reveal', wrap((req) => {
   const file = path.resolve(String(req.body?.path ?? ''));
-  if (!file.startsWith(PROJECTS_DIR)) throw new Error('Ruta fuera de los proyectos');
+  const rel = path.relative(PROJECTS_DIR, file);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('Ruta fuera de los proyectos');
   if (process.platform === 'darwin') execFile('open', ['-R', file]);
   return { ok: true };
 }));
