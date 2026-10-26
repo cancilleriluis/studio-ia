@@ -1,4 +1,6 @@
-import type { Clip, Project } from '../../shared/types';
+import type { AudioClip, Clip, MediaClip, Project, TranscriptFile } from '../../shared/types';
+import { api } from '../api';
+import { assetUrl } from '../engine/media';
 import {
   createEffectClip,
   createMediaClip,
@@ -98,4 +100,68 @@ export async function removeSilences(clipId: string, opts = { minSilence: 0.3, p
     removed = removeSourceRanges(d, clipId, ranges);
   });
   st.notify(removed > 0 ? `Quitados ${removed.toFixed(1)} s de pausas (${ranges.length} cortes)` : 'No se encontraron pausas que quitar');
+}
+
+/**
+ * Transcripciones de los medios con voz que hay en la línea de tiempo.
+ * Con `transcribe`, lanza Whisper en los que falten y espera a que terminen.
+ */
+export async function timelineTranscripts(transcribe: boolean, lang = 'auto'): Promise<Record<string, TranscriptFile>> {
+  const st = useEditor.getState();
+  const project = st.project!;
+  const used = new Set(
+    project.clips.filter((c) => c.type === 'video' || (c.type === 'audio' && !c.duck)).map((c) => (c as MediaClip | AudioClip).assetId),
+  );
+  const assets = project.assets.filter((a) => used.has(a.id) && a.hasAudio && a.status === 'ready');
+  if (!assets.length) throw new Error('No hay clips con voz en la línea de tiempo');
+  const missing = assets.filter((a) => a.transcriptStatus !== 'ready');
+  if (missing.length && transcribe) {
+    if (!st.status?.whisper.model) throw new Error('Falta el modelo de Whisper: ejecuta "npm run setup:whisper"');
+    st.notify(`Transcribiendo ${missing.length} medio(s) con Whisper…`);
+    for (const a of missing) await api.transcribe(project.id, a.id, lang);
+    const deadline = Date.now() + 15 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 600));
+      const cur = useEditor.getState().project!.assets.filter((a) => missing.some((m) => m.id === a.id));
+      if (cur.some((a) => a.transcriptStatus === 'error')) throw new Error('Falló la transcripción');
+      if (cur.every((a) => a.transcriptStatus === 'ready')) break;
+    }
+  }
+  const out: Record<string, TranscriptFile> = {};
+  for (const a of assets) {
+    const t = await useEditor.getState().ensureTranscript(a.id);
+    if (t) out[a.id] = t;
+  }
+  return out;
+}
+
+/**
+ * Auto Reframe: analiza las caras de los vídeos (si hace falta) y activa el
+ * seguimiento en los clips indicados (por defecto, todos los vídeos que rellenan el cuadro).
+ */
+export async function autoReframe(clipIds?: string[]): Promise<void> {
+  const st = useEditor.getState();
+  const p = st.project!;
+  const clips = p.clips.filter(
+    (c): c is MediaClip => c.type === 'video' && (clipIds ? clipIds.includes(c.id) : c.fit === 'cover'),
+  );
+  if (!clips.length) {
+    st.notify('No hay clips de vídeo que reencuadrar', 'error');
+    return;
+  }
+  const { analyzeFaces } = await import('../engine/faces');
+  const assets = [...new Set(clips.map((c) => c.assetId))]
+    .map((id) => useEditor.getState().project!.assets.find((a) => a.id === id)!)
+    .filter((a) => a && !a.faceTrack);
+  for (const [k, a] of assets.entries()) {
+    const label = assets.length > 1 ? ` (${k + 1}/${assets.length})` : '';
+    st.notify(`Analizando caras${label}… 0 %`);
+    const track = await analyzeFaces(assetUrl(p.id, a), a.duration, (f) => st.notify(`Analizando caras${label}… ${Math.round(f * 100)} %`));
+    const updated = await api.faceTrack(p.id, a.id, track);
+    useEditor.getState().upsertAsset(updated, true);
+  }
+  useEditor.getState().commit((d) => {
+    for (const c of d.clips) if (clips.some((x) => x.id === c.id) && c.type === 'video') c.autoReframe = true;
+  });
+  st.notify(`Auto Reframe activado en ${clips.length} clip(s): el encuadre sigue tu cara en todos los formatos`);
 }

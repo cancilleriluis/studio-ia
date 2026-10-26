@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { AudioLines, FileAudio, Image as ImageIcon, Loader2, Mic, Plus, Upload, Video } from 'lucide-react';
+import { AudioLines, FileAudio, Image as ImageIcon, Loader2, Mic, Palette, Plus, Upload, Video } from 'lucide-react';
 import type { Asset } from '../../shared/types';
 import { api } from '../api';
 import { mediaFileUrl, assetUrl } from '../engine/media';
@@ -9,6 +9,12 @@ import { addAssetAt, formatSec } from './util';
 import { openSource } from './SourceMonitor';
 
 function Thumb({ projectId, asset }: { projectId: string; asset: Asset }) {
+  if (asset.type === 'lut')
+    return (
+      <div className="asset-thumb" style={{ background: 'linear-gradient(135deg,#0f4c5c,#5f0f40,#e09f3e)', color: '#fff' }}>
+        <Palette size={18} />
+      </div>
+    );
   if (asset.type === 'image')
     return <div className="asset-thumb" style={{ backgroundImage: `url("${assetUrl(projectId, asset)}")` }} />;
   if (asset.type === 'video' && asset.filmstrip) {
@@ -97,7 +103,7 @@ export function MediaPanel() {
         <Upload size={18} style={{ marginBottom: 6 }} />
         <div style={{ fontWeight: 600 }}>Importar medios</div>
         <div className="hint" style={{ marginTop: 3 }}>Vídeo, audio o imágenes · arrastra aquí o haz clic</div>
-        <input ref={input} type="file" multiple hidden accept="video/*,audio/*,image/*,.mov,.mkv,.heic" onChange={(e) => upload([...(e.target.files ?? [])])} />
+        <input ref={input} type="file" multiple hidden accept="video/*,audio/*,image/*,.mov,.mkv,.heic,.cube" onChange={(e) => upload([...(e.target.files ?? [])])} />
       </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
         <input placeholder="o pega una ruta: ~/Documents/video.mp4" value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && importPath()} style={{ flex: 1, fontSize: 12 }} />
@@ -111,17 +117,18 @@ export function MediaPanel() {
         <div
           key={a.id}
           className="asset"
-          draggable={a.status === 'ready'}
+          draggable={a.status === 'ready' && a.type !== 'lut'}
           onDragStart={(e) => e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ kind: 'asset', id: a.id }))}
-          onDoubleClick={() => openSource(a.id)}
+          onDoubleClick={() => a.type !== 'lut' && openSource(a.id)}
           title="Doble clic: abrir en el monitor de origen · arrastra a una pista"
         >
           <Thumb projectId={project.id} asset={a} />
           <div style={{ minWidth: 0 }}>
             <div className="asset-name">{a.name}</div>
             <div className="asset-meta">
-              {a.type === 'video' ? <Video size={11} /> : a.type === 'audio' ? <AudioLines size={11} /> : <ImageIcon size={11} />}
-              {a.type !== 'image' && formatSec(a.duration)}
+              {a.type === 'video' ? <Video size={11} /> : a.type === 'audio' ? <AudioLines size={11} /> : a.type === 'lut' ? <Palette size={11} /> : <ImageIcon size={11} />}
+              {a.type === 'lut' && 'LUT de color · aplícala desde Color'}
+              {a.type !== 'image' && a.type !== 'lut' && formatSec(a.duration)}
               {a.width ? ` · ${a.width}×${a.height}` : ''}
             </div>
             <div className="asset-meta">
@@ -142,7 +149,7 @@ export function MediaPanel() {
               </div>
             )}
           </div>
-          <button className="icon-btn sm" title="Añadir en el cabezal" disabled={a.status !== 'ready'} onClick={() => addAssetAt(a.id)}>
+          <button className="icon-btn sm" title="Añadir en el cabezal" disabled={a.status !== 'ready' || a.type === 'lut'} onClick={() => addAssetAt(a.id)}>
             <Plus size={15} />
           </button>
         </div>

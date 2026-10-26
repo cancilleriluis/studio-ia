@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, BetweenHorizontalStart, Camera, ChevronsDownUp, Pause, Play, ScanLine, SkipBack, SkipForward } from 'lucide-react';
-import type { Clip, KfProp, MediaClip, Transform } from '../../shared/types';
+import type { Clip, Crop, KfProp, MediaClip, Transform } from '../../shared/types';
+import { cropRect, effectiveCrop, mediaRect } from '../engine/geometry';
 import { FORMATS, isVertical } from '../../shared/formats';
 import { clipEnd, cutRange, liftRange, projectDuration } from '../../shared/ops';
 import { isAnimated, setKey, transformAt } from '../../shared/keyframes';
@@ -85,7 +86,8 @@ function applyTransform(c: Clip & { transform: Transform }, local: number, v: Pa
   }
 }
 
-type DragMode = 'move' | 'scale' | 'rotate';
+type DragMode = 'move' | 'scale' | 'rotate' | 'crop';
+type Side = 'l' | 't' | 'r' | 'b';
 
 interface Drag {
   mode: DragMode;
@@ -94,6 +96,11 @@ interface Drag {
   started: boolean;
   B?: { x: number; y: number };
   T0?: Transform;
+  side?: Side;
+  crop0?: Crop;
+  /** Tamaño del medio en px del lienzo ya escalado (para convertir el arrastre en fracción). */
+  mw?: number;
+  mh?: number;
 }
 
 function ProgramMonitor() {
@@ -127,7 +134,7 @@ function ProgramMonitor() {
       if (box) setBox(null);
       return;
     }
-    const b = measure(frameRef.current, selected);
+    const b = selected.type === 'video' || selected.type === 'image' ? measureMedia(selected) : measure(frameRef.current, selected);
     if (!b) {
       if (box) setBox(null);
       return;
@@ -135,12 +142,39 @@ function ProgramMonitor() {
     if (!box || Math.abs(b.x - box.x) > 0.5 || Math.abs(b.y - box.y) > 0.5 || Math.abs(b.w - box.w) > 0.5 || Math.abs(b.h - box.h) > 0.5) setBox(b);
   });
 
+  /** Caja visible de un medio (con recorte y transformación), en px de pantalla. */
+  function measureMedia(c: MediaClip): Box | null {
+    const asset = project.assets.find((a) => a.id === c.assetId);
+    const r = cropRect(mediaRect(c, asset, project.format, W, H, local), c.crop, W, H);
+    if (r.width < 1 || r.height < 1) return null;
+    const T = transformAt(c, local);
+    const a = (T.rotation * Math.PI) / 180;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    const pts = [
+      [r.left, r.top],
+      [r.left + r.width, r.top],
+      [r.left, r.top + r.height],
+      [r.left + r.width, r.top + r.height],
+    ].map(([x, y]) => {
+      const vx = (x - W / 2) * T.scale;
+      const vy = (y - H / 2) * T.scale;
+      return [W / 2 + T.x * W + vx * cos - vy * sin, H / 2 + T.y * H + vx * sin + vy * cos];
+    });
+    const x0 = Math.max(0, Math.min(...pts.map((p) => p[0])));
+    const y0 = Math.max(0, Math.min(...pts.map((p) => p[1])));
+    const x1 = Math.min(W, Math.max(...pts.map((p) => p[0])));
+    const y1 = Math.min(H, Math.max(...pts.map((p) => p[1])));
+    if (x1 <= x0 || y1 <= y0) return null;
+    return { x: x0 * scale, y: y0 * scale, w: (x1 - x0) * scale, h: (y1 - y0) * scale };
+  }
+
   const canvasPoint = (e: React.PointerEvent) => {
     const r = frameRef.current!.getBoundingClientRect();
     return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
   };
 
-  const startDrag = (e: React.PointerEvent, mode: DragMode) => {
+  const startDrag = (e: React.PointerEvent, mode: DragMode, side?: Side) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     st.pause();
@@ -151,7 +185,15 @@ function ProgramMonitor() {
       return;
     }
     const d: Drag = { mode, x: e.clientX, y: e.clientY, started: false };
-    if (mode !== 'move' && box && selected && 'transform' in selected) {
+    if (mode === 'crop' && selected && (selected.type === 'video' || selected.type === 'image')) {
+      const asset = project.assets.find((a) => a.id === selected.assetId);
+      const m = mediaRect(selected, asset, project.format, W, H, local);
+      const sc = transformAt(selected, local).scale;
+      d.side = side;
+      d.crop0 = effectiveCrop(m, selected.crop, W, H);
+      d.mw = m.width * sc;
+      d.mh = m.height * sc;
+    } else if (mode !== 'move' && box && selected && 'transform' in selected) {
       d.B = { x: (box.x + box.w / 2) / scale, y: (box.y + box.h / 2) / scale };
       d.T0 = transformAt(selected, local);
     }
@@ -173,6 +215,19 @@ function ProgramMonitor() {
     st.transient((p) => {
       const c = p.clips.find((x) => x.id === selected.id);
       if (!c || !('transform' in c)) return;
+      if (d.mode === 'crop') {
+        // Arrastrar un lado recorta solo ese lado (fracción del propio medio)
+        const m = c as MediaClip;
+        const c0 = d.crop0!;
+        const cur: Crop = { l: 0, t: 0, r: 0, b: 0, ...(m.crop ?? {}) };
+        const min = 0.02;
+        if (d.side === 'l') cur.l = Math.min(1 - c0.r - min, Math.max(0, c0.l + dx / d.mw!));
+        if (d.side === 'r') cur.r = Math.min(1 - c0.l - min, Math.max(0, c0.r - dx / d.mw!));
+        if (d.side === 't') cur.t = Math.min(1 - c0.b - min, Math.max(0, c0.t + dy / d.mh!));
+        if (d.side === 'b') cur.b = Math.min(1 - c0.t - min, Math.max(0, c0.b - dy / d.mh!));
+        m.crop = cur;
+        return;
+      }
       if (d.mode === 'move') {
         if (reframes) {
           const m = c as MediaClip;
@@ -285,6 +340,23 @@ function ProgramMonitor() {
                 {handle('nesw-resize', { right: -5, top: -5 }, 'scale')}
                 {handle('nesw-resize', { left: -5, bottom: -5 }, 'scale')}
                 {handle('nwse-resize', { right: -5, bottom: -5 }, 'scale')}
+                {(selected?.type === 'video' || selected?.type === 'image') &&
+                  (
+                    [
+                      ['l', 'ew-resize', { left: -4, top: '50%', marginTop: -9 }],
+                      ['r', 'ew-resize', { right: -4, top: '50%', marginTop: -9 }],
+                      ['t', 'ns-resize', { top: -4, left: '50%', marginLeft: -9 }],
+                      ['b', 'ns-resize', { bottom: -4, left: '50%', marginLeft: -9 }],
+                    ] as [Side, string, React.CSSProperties][]
+                  ).map(([side, cursor, pos]) => (
+                    <div
+                      key={side}
+                      className={`gz-crop ${side === 'l' || side === 'r' ? 'v' : 'h'}`}
+                      style={{ cursor, ...pos }}
+                      title="Arrastra para recortar este lado"
+                      onPointerDown={(e) => startDrag(e, 'crop', side)}
+                    />
+                  ))}
                 <div className="gz-stem" />
                 <div className="gz-rotate" title="Rotar (⇧ en pasos de 15°)" onPointerDown={(e) => startDrag(e, 'rotate')} />
               </div>
@@ -341,8 +413,10 @@ function ProgramMonitor() {
         <span className="hint">
           {movable
             ? reframes
-              ? 'Arrastra: reencuadrar · esquinas: escalar · ⌥ rueda: zoom'
-              : 'Arrastra: mover · esquinas: escalar · círculo: rotar'
+              ? 'Arrastra: reencuadrar · lados: recortar · esquinas: escalar'
+              : selected?.type === 'template'
+                ? 'Arrastra: mover · esquinas: escalar · círculo: rotar'
+                : 'Arrastra: mover · esquinas: escalar · lados: recortar'
             : `${W}×${H} · ${Math.round(scale * 100)}%`}
         </span>
         <button className="icon-btn" title="Exportar fotograma en PNG (miniatura)" disabled={shooting} onClick={snapshot}>

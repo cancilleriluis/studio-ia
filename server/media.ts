@@ -23,6 +23,7 @@ export function detectType(file: string): AssetType | null {
   if (VIDEO_EXT.includes(ext)) return 'video';
   if (AUDIO_EXT.includes(ext)) return 'audio';
   if (IMAGE_EXT.includes(ext)) return 'image';
+  if (ext === '.cube') return 'lut';
   return null;
 }
 
@@ -52,6 +53,27 @@ export async function importFile(projectId: string, src: string, originalName: s
     }
   } else fs.copyFileSync(src, dest);
 
+  if (type === 'lut') {
+    // Las LUT no se procesan: se leen en el navegador al aplicar el color
+    const text = fs.readFileSync(dest, 'utf8');
+    if (!/LUT_3D_SIZE\s+\d+/.test(text)) {
+      fs.rmSync(dest, { force: true });
+      throw new Error(`${originalName}: solo se admiten LUT 3D en formato .cube`);
+    }
+    const lut: Asset = {
+      id: uid('a_'),
+      name: path.basename(originalName, path.extname(originalName)),
+      type,
+      file: fileName,
+      duration: 0,
+      hasAudio: false,
+      status: 'ready',
+      progress: 1,
+    };
+    mutateProject(projectId, (p) => p.assets.push(lut), 'silent');
+    broadcast(projectId, 'asset', lut);
+    return lut;
+  }
   const info = await probe(dest);
   const asset: Asset = {
     id: uid('a_'),

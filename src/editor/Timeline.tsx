@@ -483,10 +483,14 @@ export function Timeline() {
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
     const d = drag.current;
     drag.current = null;
     setSnapX(null);
+    // Clic sin arrastrar sobre un clip: llevar el cabezal a ese punto
+    if (d?.mode === 'move' && !d.started && !e.shiftKey && !e.metaKey) {
+      useEditor.getState().setTime(Math.max(0, timeAtClient(e.clientX)));
+    }
     if (d?.mode === 'key' && !d.started) {
       const c = useEditor.getState().project!.clips.find((x) => x.id === d.clipId);
       if (c) useEditor.getState().setTime(c.start + d.keyT!);
@@ -643,7 +647,10 @@ export function Timeline() {
                 className={`tl-track ${t.kind} ${t.locked ? 'locked' : ''} ${dropTrack === t.id ? 'drop' : ''}`}
                 style={{ height: trackH(t) }}
                 onPointerDown={(e) => {
-                  if (e.button === 0 && !e.shiftKey) st.select([]);
+                  if (e.button !== 0) return;
+                  if (!e.shiftKey) st.select([]);
+                  // Clic o arrastre en el fondo de una pista: mover el cabezal (como en la regla)
+                  onScrub(e);
                 }}
                 onDragOver={(e) => {
                   if (e.dataTransfer.types.includes(DRAG_MIME)) {

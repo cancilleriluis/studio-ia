@@ -75,7 +75,7 @@ export function createProject(name: string, format: Project['format']): Project 
 /** Campos de los medios que calcula el servidor y que la interfaz no debe pisar. */
 const DERIVED: (keyof Asset)[] = [
   'proxy', 'duration', 'width', 'height', 'fps', 'hasAudio', 'waveform', 'filmstrip',
-  'transcript', 'transcriptStatus', 'status', 'progress', 'error', 'file', 'type',
+  'transcript', 'transcriptStatus', 'status', 'progress', 'error', 'file', 'type', 'faceTrack',
 ];
 
 /** Guardado desde la interfaz: respeta lo que el servidor ha calculado de los medios. */

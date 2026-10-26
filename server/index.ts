@@ -19,6 +19,7 @@ import {
   saveFromClient,
   snapshot,
   subscribe,
+  updateAsset,
 } from './store';
 import { importFile, resolveImportPath, resumePendingAssets } from './media';
 import { readTranscript, transcribeAsset, whisperStatus } from './transcribe';
@@ -123,6 +124,18 @@ app.post('/api/projects/:id/assets/:assetId/transcribe', wrap(async (req) => {
   // Se lanza en segundo plano; el progreso llega por eventos.
   transcribeAsset(id, assetId, req.body?.language || 'auto').catch((e) => console.error('[whisper]', e));
   return { ok: true };
+}));
+
+app.post('/api/projects/:id/assets/:assetId/facetrack', wrap((req) => {
+  const rate = Number(req.body?.rate);
+  const points = req.body?.points;
+  const valid =
+    rate > 0 && rate <= 30 && Array.isArray(points) && points.length <= 50000 &&
+    points.every((p: unknown) => Array.isArray(p) && p.length === 2 && p.every((v) => typeof v === 'number' && v >= 0 && v <= 1));
+  if (!valid) throw new Error('Seguimiento de cara no válido');
+  const a = updateAsset(pid(req), String(req.params.assetId), { faceTrack: { rate, points } });
+  if (!a) throw new Error('Medio no encontrado');
+  return a;
 }));
 
 app.get('/api/projects/:id/assets/:assetId/transcript', wrap((req) => readTranscript(pid(req), String(req.params.assetId))));

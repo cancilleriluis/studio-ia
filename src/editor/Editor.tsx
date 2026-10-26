@@ -8,6 +8,7 @@ import {
   CloudOff,
   Download,
   History,
+  ScanFace,
   Film,
   Layers,
   Loader2,
@@ -32,6 +33,7 @@ import {
   splitAt,
 } from '../../shared/ops';
 import { placeFromSource, sourceControls } from './SourceMonitor';
+import { autoReframe } from './util';
 import { uid } from '../../shared/id';
 import { useEditor } from '../store';
 import { api } from '../api';
@@ -41,6 +43,7 @@ import { MediaPanel } from './MediaPanel';
 import { TemplatesPanel } from './TemplatesPanel';
 import { EffectsPanel } from './EffectsPanel';
 import { CaptionsPanel } from './CaptionsPanel';
+import { TranscriptPanel } from './TranscriptPanel';
 import { Inspector } from './Inspector';
 import { AIPanel } from './AIPanel';
 import { ExportDialog } from './ExportDialog';
@@ -338,6 +341,13 @@ function TopBar() {
           </button>
         ))}
       </div>
+      <button
+        className="btn sm ghost"
+        title="Auto Reframe: detecta tu cara y ajusta el encuadre de los vídeos en todos los formatos"
+        onClick={() => autoReframe().catch((e) => st.notify(String(e.message), 'error'))}
+      >
+        <ScanFace size={14} /> Auto Reframe
+      </button>
       <div className="spacer" />
       <button className="icon-btn" title="Historial de versiones" onClick={() => st.set({ historyOpen: true })}>
         <History size={16} />
@@ -359,7 +369,7 @@ function LeftPanel() {
     { id: 'media', label: 'Medios', icon: Film },
     { id: 'templates', label: 'Plantillas', icon: Layers },
     { id: 'effects', label: 'Efectos', icon: Wand2 },
-    { id: 'captions', label: 'Subtítulos', icon: CaptionsIcon },
+    { id: 'captions', label: 'Texto', icon: CaptionsIcon },
   ] as const;
   return (
     <div className="panel left">
@@ -373,8 +383,34 @@ function LeftPanel() {
       {tab === 'media' && <MediaPanel />}
       {tab === 'templates' && <TemplatesPanel />}
       {tab === 'effects' && <EffectsPanel />}
-      {tab === 'captions' && <CaptionsPanel />}
+      {tab === 'captions' && <TextPanel />}
     </div>
+  );
+}
+
+/** Panel «Texto» como en Premiere: transcripción editable y subtítulos. */
+function TextPanel() {
+  const [sub, setSub] = useState<'transcript' | 'captions'>(() => (localStorage.getItem('studio.textTab') as any) || 'transcript');
+  const pick = (v: 'transcript' | 'captions') => {
+    setSub(v);
+    try {
+      localStorage.setItem('studio.textTab', v);
+    } catch {
+      /* sin almacenamiento */
+    }
+  };
+  return (
+    <>
+      <div className="subtabs">
+        <button className={sub === 'transcript' ? 'on' : ''} onClick={() => pick('transcript')}>
+          Transcripción
+        </button>
+        <button className={sub === 'captions' ? 'on' : ''} onClick={() => pick('captions')}>
+          Subtítulos
+        </button>
+      </div>
+      {sub === 'transcript' ? <TranscriptPanel /> : <CaptionsPanel />}
+    </>
   );
 }
 

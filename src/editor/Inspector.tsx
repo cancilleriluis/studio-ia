@@ -6,8 +6,9 @@ import { FORMATS } from '../../shared/formats';
 import { defaultTransform, deleteClips, duplicateClip, maxSourceDuration } from '../../shared/ops';
 import { useEditor } from '../store';
 import { ColorInput, FieldControl, NumberInput, Toggle, useBinder, type Binder } from './controls';
-import { CLIP_COLORS, removeSilences } from './util';
+import { CLIP_COLORS, autoReframe, removeSilences } from './util';
 import { applyPip } from './ContextMenu';
+import { LumetriSection } from './ColorPanel';
 
 const LOOKS: { id: string; name: string; c: ColorAdjust; swatch: string }[] = [
   { id: 'natural', name: 'Natural', c: { brightness: 1, contrast: 1, saturation: 1, warmth: 0 }, swatch: 'linear-gradient(135deg,#8a8f98,#c9ccd2)' },
@@ -243,6 +244,20 @@ function MediaInspector({ clip, project, b }: { clip: MediaClip; project: Projec
             ))}
           </div>
         </Field>
+        {clip.type === 'video' && (
+          <Field label="Auto Reframe">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {asset?.faceTrack ? (
+                <Toggle value={!!clip.autoReframe} onChange={(v) => editClip<MediaClip>(b, clip.id, (c) => (c.autoReframe = v))} />
+              ) : (
+                <button className="btn sm" onClick={() => autoReframe([clip.id]).catch((e) => useEditor.getState().notify(String(e.message), 'error'))}>
+                  Seguir mi cara
+                </button>
+              )}
+              <span className="hint">{clip.autoReframe ? 'El encuadre sigue la cara' : 'Detecta la cara y la sigue'}</span>
+            </div>
+          </Field>
+        )}
         <Num b={b} label="Zoom" value={fr.zoom} min={1} max={4} step={0.01} set={setFr('zoom')} />
         <Num b={b} label="Foco X" value={fr.x} min={0} max={1} step={0.005} set={setFr('x')} />
         <Num b={b} label="Foco Y" value={fr.y} min={0} max={1} step={0.005} set={setFr('y')} />
@@ -329,31 +344,7 @@ function MediaInspector({ clip, project, b }: { clip: MediaClip; project: Projec
           </Field>
         </Section>
       )}
-      <Section
-        title="Color"
-        action={
-          <button className="icon-btn sm" title="Restablecer" onClick={() => editClip<MediaClip>(b, clip.id, (c) => delete c.color)}>
-            <RotateCcw size={12} />
-          </button>
-        }
-      >
-        <div className="looks">
-          {LOOKS.map((l) => (
-            <button
-              key={l.id}
-              className={`look ${clip.look === l.id ? 'on' : ''}`}
-              onClick={() => editClip<MediaClip>(b, clip.id, (c) => { if (l.id === 'natural') { delete c.color; delete c.look; } else { c.color = { ...l.c }; c.look = l.id; } })}
-            >
-              <span style={{ background: l.swatch }} />
-              {l.name}
-            </button>
-          ))}
-        </div>
-        <Num b={b} label="Brillo" value={col.brightness} min={0.3} max={2} step={0.01} set={setCol('brightness')} />
-        <Num b={b} label="Contraste" value={col.contrast} min={0.3} max={2} step={0.01} set={setCol('contrast')} />
-        <Num b={b} label="Saturación" value={col.saturation} min={0} max={3} step={0.01} set={setCol('saturation')} />
-        <Num b={b} label="Calidez" value={col.warmth} min={-1} max={1} step={0.01} set={setCol('warmth')} />
-      </Section>
+      <LumetriSection clip={clip} project={project} b={b} />
       <TransformSection clip={clip} b={b} />
     </>
   );

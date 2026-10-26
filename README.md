@@ -13,7 +13,9 @@ Editor de vídeo local con motion graphics e IA integrada, hecho a medida para v
 - **Caja de transformación** en el monitor: mover, escalar y rotar desde el centro del elemento; **recorte, esquinas, borde y sombra** con un clic para *picture-in-picture*.
 - **Monitor de origen** con entrada/salida e **insertar / sobrescribir**; **levantar / extraer** con marcas en el programa; **menú contextual**, **desvincular audio** y desplazamiento fino de clips.
 - **Audio con Web Audio**: medidores VU, ganancia hasta 200 % y **Mejorar voz** (graves, reducción de ruido, compresor y presencia) en preview y exportación.
-- **Looks de color** de un clic (Cálido, Frío, Cine, Vivo, Película, B/N, Noir).
+- **Edición basada en texto** (panel Texto → Transcripción): borra palabras de la transcripción y desaparecen del vídeo; búsqueda, quitar muletillas y palabras repetidas.
+- **Color tipo Lumetri** en WebGL: looks de un clic, exposición, contraste, luces y sombras, temperatura, matiz, saturación e intensidad, **LUTs `.cube`**, ruedas de color (sombras, medios, luces) y **scopes** (forma de onda y vectorscopio). Idéntico en preview y exportación.
+- **Auto Reframe**: detecta tu cara en local (MediaPipe) y el encuadre la sigue con movimiento suave en 16:9, 9:16, 1:1 y 4:5.
 - **Historial de versiones** automático (también antes de cada cambio de la IA) con restauración.
 - **IA**: Claude edita el proyecto por ti (ver más abajo).
 - **Exportación MP4** fotograma a fotograma con el mismo motor que la previsualización: lo que ves es lo que exportas. Preajustes (YouTube 1080p/4K, Reels…), H.264 o HEVC acelerado por el Mac, rango I/O, capítulos de YouTube a partir de los marcadores y **captura del fotograma en PNG** para miniaturas.
@@ -29,7 +31,7 @@ Editor de vídeo local con motion graphics e IA integrada, hecho a medida para v
 ## Puesta en marcha
 
 ```bash
-npm install
+npm install             # también prepara la detección de caras (MediaPipe + modelo BlazeFace, ~230 KB)
 npm run setup:whisper   # opcional: descarga el modelo de subtítulos (small, ~470 MB)
 cp .env.example .env    # opcional: configuración y API key de Claude
 npm run dev

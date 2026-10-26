@@ -6,6 +6,7 @@ import {
   Copy,
   Mic,
   PictureInPicture2,
+  ScanFace,
   Scissors,
   Sparkles,
   Trash2,
@@ -15,7 +16,7 @@ import type { MediaClip } from '../../shared/types';
 import { defaultTransform, deleteClips, duplicateClip, splitAt, unlinkAudio } from '../../shared/ops';
 import { useEditor } from '../store';
 import { openSource } from './SourceMonitor';
-import { removeSilences } from './util';
+import { autoReframe, removeSilences } from './util';
 
 export interface CtxMenuState {
   x: number;
@@ -71,6 +72,8 @@ export function ContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose: ()
   }
   if (isMediaVisual) {
     items.push('-');
+    if (clip.type === 'video')
+      items.push({ label: 'Auto Reframe (seguir la cara)', icon: ScanFace, run: () => autoReframe([clip.id]).catch((e) => st.notify(String(e.message), 'error')) });
     items.push({ label: 'Picture-in-picture', icon: PictureInPicture2, run: () => edit(applyPip) });
     items.push({ label: 'Transición: fundido cruzado', icon: Sparkles, run: () => edit((c) => (c.transitionIn = { type: 'fade', duration: 0.6 })) });
     items.push({ label: 'Transición: barrido rápido', icon: Sparkles, run: () => edit((c) => (c.transitionIn = { type: 'whip', duration: 0.4 })) });

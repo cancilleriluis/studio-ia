@@ -194,6 +194,7 @@ export function mainVisualTrack(p: Project): string {
 }
 
 export function createMediaClip(p: Project, asset: Asset, start: number, trackId?: string): MediaClip | AudioClip {
+  if (asset.type === 'lut') throw new Error('Una LUT no va en la línea de tiempo: aplícala desde Color en el inspector');
   const duration = asset.type === 'image' ? 5 : asset.duration;
   if (asset.type === 'audio') {
     const clip: AudioClip = {
@@ -226,7 +227,8 @@ export function createMediaClip(p: Project, asset: Asset, start: number, trackId
     volume: asset.type === 'video' && asset.hasAudio ? 1 : 0,
     fadeIn: 0,
     fadeOut: 0,
-    fit: 'cover',
+    // Las imágenes entran completas (sin perder los lados); el vídeo rellena el cuadro
+    fit: asset.type === 'image' ? 'contain' : 'cover',
     framing: {},
     transform: defaultTransform(),
     kenBurns: asset.type === 'image' ? false : undefined,

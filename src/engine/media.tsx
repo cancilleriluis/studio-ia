@@ -43,8 +43,12 @@ async function seekExact(v: HTMLVideoElement, t: number): Promise<void> {
   }
 }
 
+/** Última búsqueda pendiente de cada vídeo (la corrección de color espera a que termine al exportar). */
+export const lastSeek = new WeakMap<HTMLMediaElement, Promise<void>>();
+
 interface VideoProps {
   src: string;
+  elRef?: React.MutableRefObject<HTMLVideoElement | null>;
   sourceTime: number;
   active: boolean;
   playing: boolean;
@@ -66,8 +70,8 @@ function routeAudio(el: HTMLMediaElement, attached: { current: boolean }, gain: 
 }
 
 /** Vídeo sincronizado con el reloj del editor (o con el fotograma exacto al exportar). */
-export function VideoView({ src, sourceTime, active, playing, rate = 1, volume = 0, enhance = false, style }: VideoProps) {
-  const ref = useRef<HTMLVideoElement>(null);
+export function VideoView({ src, sourceTime, active, playing, rate = 1, volume = 0, enhance = false, style, elRef }: VideoProps) {
+  const ref = useRef<HTMLVideoElement | null>(null);
   const attached = useRef(false);
 
   useLayoutEffect(() => {
@@ -75,7 +79,9 @@ export function VideoView({ src, sourceTime, active, playing, rate = 1, volume =
     if (!v) return;
     if (renderMode) {
       v.muted = true;
-      track(seekExact(v, sourceTime));
+      const p = seekExact(v, sourceTime);
+      lastSeek.set(v, p);
+      track(p);
       return;
     }
     v.playbackRate = rate;
@@ -96,7 +102,10 @@ export function VideoView({ src, sourceTime, active, playing, rate = 1, volume =
 
   return (
     <video
-      ref={ref}
+      ref={(el) => {
+        ref.current = el;
+        if (elRef) elRef.current = el;
+      }}
       src={src}
       preload="auto"
       playsInline
@@ -107,15 +116,28 @@ export function VideoView({ src, sourceTime, active, playing, rate = 1, volume =
   );
 }
 
-export function ImageView({ src, style }: { src: string; style?: CSSProperties }) {
-  const ref = useRef<HTMLImageElement>(null);
+export function ImageView({ src, style, elRef }: { src: string; style?: CSSProperties; elRef?: React.MutableRefObject<HTMLImageElement | null> }) {
+  const ref = useRef<HTMLImageElement | null>(null);
   useLayoutEffect(() => {
     if (renderMode && ref.current) {
       const img = ref.current;
-      track(img.complete ? img.decode().catch(() => {}) : new Promise((r) => (img.onload = img.onerror = r)));
+      const p: Promise<void> = img.complete ? img.decode().catch(() => {}) : new Promise<void>((r) => (img.onload = img.onerror = () => r()));
+      lastSeek.set(img as unknown as HTMLMediaElement, p);
+      track(p);
     }
   }, [src]);
-  return <img ref={ref} src={src} draggable={false} alt="" style={{ position: 'absolute', display: 'block', ...style }} />;
+  return (
+    <img
+      ref={(el) => {
+        ref.current = el;
+        if (elRef) elRef.current = el;
+      }}
+      src={src}
+      draggable={false}
+      alt=""
+      style={{ position: 'absolute', display: 'block', ...style }}
+    />
+  );
 }
 
 /** Audio de previsualización (la exportación mezcla el audio en el servidor). */

@@ -61,6 +61,8 @@ export const api = {
   importPath: (id: string, path: string) => req<Asset>('POST', `/api/projects/${id}/import-path`, { path }),
   transcribe: (id: string, assetId: string, language = 'auto') =>
     req<{ ok: true }>('POST', `/api/projects/${id}/assets/${assetId}/transcribe`, { language }),
+  faceTrack: (id: string, assetId: string, track: { rate: number; points: [number, number][] }) =>
+    req<Asset>('POST', `/api/projects/${id}/assets/${assetId}/facetrack`, track),
   transcript: (id: string, assetId: string) => req<TranscriptFile | null>('GET', `/api/projects/${id}/assets/${assetId}/transcript`),
   export: (
     id: string,

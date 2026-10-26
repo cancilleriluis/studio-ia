@@ -11,6 +11,9 @@ import { Captions } from './Captions';
 import { renderMode } from './renderSync';
 import { TEMPLATE_COMPONENTS } from '../templates';
 import { transformAt } from '../../shared/keyframes';
+import { cropRect, mediaRect } from './geometry';
+import { GradedMedia } from './GradedMedia';
+import { isGradeActive } from '../../shared/grade';
 
 interface StageProps {
   project: Project;
@@ -89,6 +92,7 @@ export const Stage = memo(function Stage({ project, format, time, playing, capti
                 format={fid}
                 next={l.next as MediaClip | undefined}
                 volume={trackMuted ? 0 : clipGainAt(project, c, time, regions)}
+                lutFile={c.grade?.lut ? assets.get(c.grade.lut)?.file : undefined}
               />
             ) : c.type === 'template' ? (
               <TemplateContent
@@ -174,7 +178,9 @@ function MediaContent({
   format,
   next,
   volume,
+  lutFile,
 }: {
+  lutFile?: string;
   clip: MediaClip;
   asset?: Asset;
   projectId: string;
@@ -190,16 +196,7 @@ function MediaContent({
 }) {
   if (!asset) return null;
   const local = time - c.start;
-  const sw = asset.width || W;
-  const sh = asset.height || H;
-  const fr = c.framing?.[format] ?? { x: 0.5, y: 0.5, zoom: 1 };
-  const kb = c.kenBurns ? lerp(1, 1.12, clamp(local / c.duration)) : 1;
-  const zoom = Math.max(0.1, fr.zoom * kb);
-  const s = (c.fit === 'contain' ? Math.min(W / sw, H / sh) : Math.max(W / sw, H / sh)) * zoom;
-  const dw = sw * s;
-  const dh = sh * s;
-  const left = dw >= W ? clamp(W / 2 - fr.x * dw, W - dw, 0) : (W - dw) / 2;
-  const top = dh >= H ? clamp(H / 2 - fr.y * dh, H - dh, 0) : (H - dh) / 2;
+  const { left, top, width: dw, height: dh } = mediaRect(c, asset, format, W, H, local);
 
   const col = c.color;
   const filter = col ? `brightness(${col.brightness}) contrast(${col.contrast}) saturate(${col.saturation})` : undefined;
@@ -228,14 +225,35 @@ function MediaContent({
     filter: c.shadow ? `drop-shadow(0 ${(24 * u) / sc}px ${(60 * u) / sc}px rgba(0,0,0,${0.7 * c.shadow}))` : undefined,
   };
   // Recorte y esquinas (picture-in-picture). Radio y borde constantes tras escalar.
-  const cr = c.crop ?? { l: 0, t: 0, r: 0, b: 0 };
+  // El recorte se mide sobre el propio medio: «arriba» solo quita la parte de arriba.
   const rad = ((c.radius ?? 0) * u) / sc;
   const hasBox = !!(c.crop || c.radius || c.border?.width);
-  const box = { left: cr.l * W, top: cr.t * H, width: W * (1 - cr.l - cr.r), height: H * (1 - cr.t - cr.b) };
-  const clipPath = hasBox ? `inset(${cr.t * H}px ${cr.r * W}px ${cr.b * H}px ${cr.l * W}px round ${rad}px)` : undefined;
+  const box = cropRect({ left, top, width: dw, height: dh }, c.crop, W, H);
+  const clipPath = hasBox
+    ? `inset(${box.top}px ${W - box.left - box.width}px ${H - box.top - box.height}px ${box.left}px round ${rad}px)`
+    : undefined;
 
   let media: React.ReactNode;
-  if (asset.type === 'video') {
+  if (isGradeActive(c.grade) && (asset.type === 'video' || asset.type === 'image')) {
+    const st = clamp(c.in + local * c.speed, 0, Math.max(0, asset.duration - 0.04));
+    media = (
+      <GradedMedia
+        kind={asset.type}
+        src={assetUrl(projectId, asset)}
+        sourceTime={st}
+        active={visible}
+        playing={playing}
+        rate={c.speed}
+        volume={volume}
+        enhance={!!c.enhance}
+        style={mediaStyle}
+        grade={c.grade!}
+        projectId={projectId}
+        lutFile={lutFile}
+        clipId={c.id}
+      />
+    );
+  } else if (asset.type === 'video') {
     const st = clamp(c.in + local * c.speed, 0, Math.max(0, asset.duration - 0.04));
     media = (
       <VideoView src={assetUrl(projectId, asset)} sourceTime={st} active={visible} playing={playing} rate={c.speed} volume={volume} enhance={!!c.enhance} style={mediaStyle} />

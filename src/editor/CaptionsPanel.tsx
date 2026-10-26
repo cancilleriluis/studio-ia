@@ -5,7 +5,7 @@ import { CAPTION_PRESETS, FONTS } from '../../shared/registry';
 import { generateCaptions } from '../../shared/ops';
 import { api } from '../api';
 import { useEditor } from '../store';
-import { formatTC } from './util';
+import { formatTC, timelineTranscripts } from './util';
 import { ColorInput, NumberInput, Toggle } from './controls';
 
 const PREVIEW: Record<CaptionPreset, React.CSSProperties> = {
@@ -36,33 +36,7 @@ export function CaptionsPanel() {
   const generate = async () => {
     setBusy(true);
     try {
-      const used = new Set(project.clips.filter((c) => c.type === 'video' || (c.type === 'audio' && !c.duck)).map((c) => (c as any).assetId));
-      const assets = project.assets.filter((a) => used.has(a.id) && a.hasAudio && a.status === 'ready');
-      if (!assets.length) {
-        st.notify('No hay clips con voz en la línea de tiempo', 'error');
-        return;
-      }
-      const missing = assets.filter((a) => a.transcriptStatus !== 'ready');
-      if (missing.length) {
-        if (!st.status?.whisper.model) {
-          st.notify('Falta el modelo de Whisper: ejecuta "npm run setup:whisper"', 'error');
-          return;
-        }
-        st.notify(`Transcribiendo ${missing.length} medio(s) con Whisper…`);
-        for (const a of missing) await api.transcribe(project.id, a.id, lang);
-        const deadline = Date.now() + 15 * 60 * 1000;
-        while (Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 600));
-          const cur = useEditor.getState().project!.assets.filter((a) => missing.some((m) => m.id === a.id));
-          if (cur.some((a) => a.transcriptStatus === 'error')) throw new Error('Falló la transcripción');
-          if (cur.every((a) => a.transcriptStatus === 'ready')) break;
-        }
-      }
-      const transcripts: Record<string, TranscriptFile> = {};
-      for (const a of assets) {
-        const t = await useEditor.getState().ensureTranscript(a.id);
-        if (t) transcripts[a.id] = t;
-      }
+      const transcripts = await timelineTranscripts(true, lang);
       let n = 0;
       useEditor.getState().commit((p) => (n = generateCaptions(p, transcripts)));
       st.notify(`${n} subtítulos generados`);

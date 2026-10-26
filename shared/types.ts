@@ -3,7 +3,7 @@
 
 export type FormatId = '16:9' | '9:16' | '1:1' | '4:5';
 
-export type AssetType = 'video' | 'audio' | 'image';
+export type AssetType = 'video' | 'audio' | 'image' | 'lut';
 
 export interface Filmstrip {
   file: string; // sprite relativo a la carpeta media del proyecto
@@ -28,6 +28,8 @@ export interface Asset {
   waveform?: string; // json con picos de audio
   filmstrip?: Filmstrip;
   transcript?: string; // json con palabras (tiempo de la fuente)
+  /** Posición de la cara (0..1 del fotograma) muestreada a `rate` Hz y ya suavizada, para Auto Reframe. */
+  faceTrack?: { rate: number; points: [number, number][] };
   transcriptStatus?: 'none' | 'processing' | 'ready' | 'error';
   status: 'processing' | 'ready' | 'error';
   progress?: number;
@@ -72,6 +74,27 @@ export type TransitionId =
 export interface Transition {
   type: TransitionId;
   duration: number;
+}
+
+/** Rueda de color: tono en grados (0..360) y cantidad (0..1). */
+export type Wheel = [number, number];
+
+/** Corrección de color tipo Lumetri (procesada con WebGL). */
+export interface Grade {
+  exposure: number; // −2..2 pasos
+  contrast: number; // −1..1
+  highlights: number; // −1..1
+  shadows: number; // −1..1
+  temperature: number; // −1..1 (frío ↔ cálido)
+  tint: number; // −1..1 (verde ↔ magenta)
+  saturation: number; // 0..2
+  vibrance: number; // −1..1
+  lift: Wheel; // sombras
+  gamma: Wheel; // medios tonos
+  gain: Wheel; // altas luces
+  fade: number; // 0..1, película desvaída
+  lut?: string; // id de un medio de tipo 'lut' (.cube)
+  lutAmount: number; // 0..1
 }
 
 export interface ColorAdjust {
@@ -134,6 +157,9 @@ export interface MediaClip extends ClipBase {
   enhance?: boolean;
   /** Look de color aplicado (solo informativo para la interfaz). */
   look?: string;
+  grade?: Grade;
+  /** Auto Reframe: el encuadre sigue la cara detectada en el medio. */
+  autoReframe?: boolean;
 }
 
 export interface AudioClip extends ClipBase {

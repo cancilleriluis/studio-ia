@@ -17,35 +17,22 @@ export function wordsOnTimeline(p: Project, transcripts: Record<string, Transcri
   for (const [assetId, clips] of byAsset) {
     const span = (c: MediaClip | AudioClip) => [c.in, c.in + c.duration * c.speed] as const;
     for (const w of transcripts[assetId].words) {
-      const mid = (w.start + w.end) / 2;
-      let c = clips.find((x) => mid >= span(x)[0] && mid <= span(x)[1]);
-      let s = w.start;
-      let e = w.end;
-      if (!c) {
-        // La palabra cae en un tramo cortado: pegarla al borde conservado más cercano (≤ 0,6 s)
-        let best = Infinity;
-        for (const x of clips) {
-          const [a, b] = span(x);
-          const d = mid < a ? a - mid : mid - b;
-          if (d < best) {
-            best = d;
-            c = x;
-          }
-        }
-        if (!c || best > 0.6) continue;
-        const [a, b] = span(c);
-        const len = Math.min(0.3, e - s, b - a);
-        if (mid < a) {
-          s = a;
-          e = a + len;
-        } else {
-          e = b;
-          s = b - len;
+      // El clip que conserva más parte de la palabra. Si no queda nada de ella
+      // (se cortó un silencio o se borró desde la transcripción), no aparece.
+      let c: MediaClip | AudioClip | undefined;
+      let best = 0;
+      for (const x of clips) {
+        const [a, b] = span(x);
+        const overlap = Math.min(w.end, b) - Math.max(w.start, a);
+        if (overlap > best) {
+          best = overlap;
+          c = x;
         }
       }
+      if (!c || best < Math.min(0.04, (w.end - w.start) * 0.3)) continue;
       const [a, b] = span(c);
-      const start = c.start + (Math.max(s, a) - c.in) / c.speed;
-      const end = c.start + (Math.min(e, b) - c.in) / c.speed;
+      const start = c.start + (Math.max(w.start, a) - c.in) / c.speed;
+      const end = c.start + (Math.min(w.end, b) - c.in) / c.speed;
       out.push({ start, end: Math.max(end, start + 0.05), text: w.text });
     }
   }
