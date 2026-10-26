@@ -25,7 +25,7 @@ import {
 import { silencesFromPeaks, silencesFromWords } from '../shared/silence';
 import { FORMAT_IDS } from '../shared/formats';
 import { AI_MODEL, ROOT } from './config';
-import { loadProject, mediaDir, mutateProject } from './store';
+import { loadProject, mediaDir, mediaPath, mutateProject } from './store';
 import { readAllTranscripts, readTranscript, transcribeAsset } from './transcribe';
 import { importFile, resolveImportPath } from './media';
 
@@ -283,7 +283,7 @@ function deepMerge(target: any, src: any) {
 
 function loadPeaks(projectId: string, waveform?: string): { rate: number; peaks: number[] } | null {
   if (!waveform) return null;
-  const f = path.join(mediaDir(projectId), waveform);
+  const f = mediaPath(projectId, waveform);
   return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : null;
 }
 
@@ -397,6 +397,10 @@ async function runTool(projectId: string, name: string, input: ToolInput): Promi
       });
     case 'apply_patch':
       return edit((p) => {
+        // Los medios (rutas de ficheros, copias, tipos) solo los gestiona el servidor
+        const ops = (input.operations ?? []) as { path?: string; from?: string }[];
+        if (ops.some((o) => /^\/(assets|id)(\/|$)/.test(String(o.path ?? '')) || /^\/(assets|id)(\/|$)/.test(String(o.from ?? ''))))
+          throw new Error('apply_patch no puede modificar los medios (assets) ni el id del proyecto');
         jsonpatch.applyPatch(p, input.operations, true, true);
         return 'Parche aplicado.';
       });

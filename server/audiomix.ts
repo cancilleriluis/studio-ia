@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { Project } from '../shared/types';
 import { audibleClips, clipGainAt, voiceRegions } from '../shared/audio';
 import { decodePcm } from './ffmpeg';
-import { mediaDir } from './store';
+import { mediaDir, mediaPath } from './store';
 
 const RATE = 48000;
 /** Equivalente en ffmpeg de la cadena «Mejorar voz» de la previsualización (más reducción de ruido). */
@@ -22,7 +22,7 @@ export async function mixProjectAudio(p: Project, duration: number, outFile: str
 
   for (const clip of audibleClips(p)) {
     const asset = p.assets.find((a) => a.id === clip.assetId)!;
-    const pcm = await decodePcm(path.join(dir, asset.file), {
+    const pcm = await decodePcm(mediaPath(p.id, asset.file), {
       start: clip.in,
       duration: clip.duration * clip.speed,
       sampleRate: RATE,

@@ -8,7 +8,7 @@ import path from 'node:path';
 import type { Asset, AssetType } from '../shared/types';
 import { uid } from '../shared/id';
 import { decodePcm, ffmpegWithProgress, probe, run } from './ffmpeg';
-import { broadcast, listProjects, loadProject, mediaDir, mutateProject, updateAsset } from './store';
+import { broadcast, listProjects, loadProject, mediaDir, mediaPath, mutateProject, updateAsset } from './store';
 
 const VIDEO_EXT = ['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi', '.mts', '.mxf', '.hevc', '.3gp'];
 const AUDIO_EXT = ['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.opus', '.aiff', '.aif', '.caf'];
@@ -102,7 +102,7 @@ function enqueue(job: () => Promise<void>) {
 
 async function processAsset(projectId: string, asset: Asset, fps: number) {
   const dir = mediaDir(projectId);
-  const src = path.join(dir, asset.file);
+  const src = mediaPath(projectId, asset.file);
   const base = path.basename(asset.file, path.extname(asset.file));
   const patch: Partial<Asset> = {};
   try {
@@ -217,7 +217,13 @@ export function resumePendingAssets(): void {
       continue;
     }
     for (const a of p.assets) {
-      if (a.status === 'processing' && fs.existsSync(path.join(mediaDir(id), a.file))) {
+      let exists = false;
+      try {
+        exists = fs.existsSync(mediaPath(id, a.file));
+      } catch {
+        exists = false; // ruta fuera del proyecto: no se procesa
+      }
+      if (a.status === 'processing' && exists) {
         console.log(`[media] retomando ${a.file} (${id})`);
         enqueue(() => processAsset(id, a, a.fps ?? 30));
       }
@@ -238,7 +244,9 @@ export async function ensureHiresProxy(projectId: string, asset: Asset, onProgre
   if (asset.type !== 'video') return null;
   if (Math.max(asset.width ?? 0, asset.height ?? 0) <= PROXY_LONG_SIDE) return null; // la copia normal ya es nativa
   const dir = mediaDir(projectId);
-  if (asset.hiresProxy && fs.existsSync(path.join(dir, asset.hiresProxy))) return asset.hiresProxy;
+  // Solo se reutiliza una copia con la forma exacta que genera esta función
+  if (asset.hiresProxy && /^\.proxy\/[^/]+\.hires\.mp4$/.test(asset.hiresProxy) && fs.existsSync(mediaPath(projectId, asset.hiresProxy)))
+    return asset.hiresProxy;
   const base = path.basename(asset.file, path.extname(asset.file));
   const rel = `.proxy/${base}.hires.mp4`;
   const tmp = path.join(dir, `.proxy/${base}.hires.part.mp4`);
@@ -249,7 +257,7 @@ export async function ensureHiresProxy(projectId: string, asset: Asset, onProgre
     (asset.width ?? 0) >= (asset.height ?? 0) ? "scale='min(3840,iw)':-2:out_range=tv" : "scale=-2:'min(3840,ih)':out_range=tv";
   await ffmpegWithProgress(
     [
-      '-y', '-i', path.join(dir, asset.file),
+      '-y', '-i', mediaPath(projectId, asset.file),
       '-map', '0:v:0', '-an',
       '-vf', `${scale},format=yuv420p`,
       '-r', String(outFps),

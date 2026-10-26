@@ -11,6 +11,17 @@ import { PROJECTS_DIR } from './config';
 
 export const projectDir = (id: string) => path.join(PROJECTS_DIR, id);
 export const mediaDir = (id: string) => path.join(projectDir(id), 'media');
+
+/**
+ * Ruta absoluta de un fichero de medios del proyecto. Las rutas guardadas en
+ * project.json no son de fiar: se rechaza cualquiera que salga de media/.
+ */
+export function mediaPath(id: string, rel: string): string {
+  const dir = path.resolve(mediaDir(safeId(id)));
+  const full = path.resolve(dir, String(rel ?? ''));
+  if (!full.startsWith(dir + path.sep)) throw new Error('Ruta de medio no válida');
+  return full;
+}
 export const exportsDir = (id: string) => path.join(projectDir(id), 'exports');
 const projectFile = (id: string) => path.join(projectDir(id), 'project.json');
 
@@ -83,15 +94,16 @@ export function saveFromClient(incoming: Project): Project {
   snapshot(incoming.id, 'auto');
   const current = loadProject(incoming.id);
   const byId = new Map(current.assets.map((a) => [a.id, a]));
-  incoming.assets = incoming.assets.map((a) => {
-    const cur = byId.get(a.id);
-    if (!cur) return a;
+  // Los medios solo los crea el servidor al importar: se descartan los desconocidos
+  // y de los conocidos solo se acepta lo editable (p. ej. el nombre)
+  incoming.assets = incoming.assets.filter((a) => byId.has(a.id)).map((a) => {
+    const cur = byId.get(a.id)!;
     const merged: any = { ...a };
     for (const k of DERIVED) merged[k] = (cur as any)[k];
     return merged as Asset;
   });
-  // Medios añadidos en el servidor mientras la interfaz tenía una copia antigua
-  for (const a of current.assets) if (!incoming.assets.some((x) => x.id === a.id) && a.status === 'processing') incoming.assets.push(a);
+  // Medios añadidos en el servidor mientras la interfaz tenía una copia antigua: no se pierden
+  for (const a of current.assets) if (!incoming.assets.some((x) => x.id === a.id)) incoming.assets.push(a);
   incoming.updatedAt = Date.now();
   writeProject(normalizeProject(incoming));
   return incoming;

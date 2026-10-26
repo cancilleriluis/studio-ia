@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { TranscriptFile, Word } from '../shared/types';
 import { run } from './ffmpeg';
 import { findBinary, findWhisperModel } from './config';
-import { mediaDir, updateAsset, loadProject } from './store';
+import { mediaDir, mediaPath, updateAsset, loadProject } from './store';
 import { alignWords, speechSegments } from '../shared/silence';
 
 export function whisperStatus() {
@@ -32,13 +32,13 @@ export async function transcribeAsset(projectId: string, assetId: string, langua
   try {
     const dir = mediaDir(projectId);
     const wav = path.join(tmp, 'audio.wav');
-    await run('ffmpeg', ['-y', '-i', path.join(dir, asset.file), '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav]);
+    await run('ffmpeg', ['-y', '-i', mediaPath(projectId, asset.file), '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav]);
     const outBase = path.join(tmp, 'out');
     const threads = String(Math.max(2, Math.min(8, os.cpus().length - 2)));
     await run(binary, ['-m', model, '-f', wav, '-l', language, '-ml', '1', '-sow', '-oj', '-of', outBase, '-t', threads, '-np']);
     const json = JSON.parse(fs.readFileSync(`${outBase}.json`, 'utf8'));
     let words = parseWords(json.transcription ?? []);
-    const wave = asset.waveform ? path.join(dir, asset.waveform) : '';
+    const wave = asset.waveform ? mediaPath(projectId, asset.waveform) : '';
     if (wave && fs.existsSync(wave)) {
       const w = JSON.parse(fs.readFileSync(wave, 'utf8')) as { rate: number; peaks: number[] };
       words = alignWords(words, speechSegments(w.peaks, w.rate));
@@ -82,7 +82,7 @@ export function readTranscript(projectId: string, assetId: string): TranscriptFi
   const p = loadProject(projectId);
   const a = p.assets.find((x) => x.id === assetId);
   if (!a?.transcript) return null;
-  const file = path.join(mediaDir(projectId), a.transcript);
+  const file = mediaPath(projectId, a.transcript);
   if (!fs.existsSync(file)) return null;
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }

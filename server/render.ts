@@ -70,7 +70,47 @@ const cancelled = new Set<string>();
  * está siempre en primer plano. Con varias pestañas en un mismo Chrome, las ocultas
  * no pintan ni cargan vídeo y la exportación se queda esperando.
  */
-function launchBrowser(): Promise<Browser> {
+// Límite de navegadores abiertos a la vez (exportación + capturas PNG)
+const MAX_BROWSERS = Math.max(2, Math.min(6, Math.floor(os.cpus().length / 2)));
+let openBrowsers = 0;
+const waiting: (() => void)[] = [];
+
+async function acquireSlot(): Promise<void> {
+  if (openBrowsers < MAX_BROWSERS) {
+    openBrowsers++;
+    return;
+  }
+  await new Promise<void>((resolve) => waiting.push(resolve));
+}
+
+function releaseSlot() {
+  const next = waiting.shift();
+  if (next) next();
+  else openBrowsers--;
+}
+
+/** Abre un Chrome dentro del límite; hay que cerrarlo con `closeBrowser`. */
+async function launchBrowser(): Promise<Browser> {
+  await acquireSlot();
+  try {
+    return await launchChrome();
+  } catch (e) {
+    releaseSlot();
+    throw e;
+  }
+}
+
+async function closeBrowser(b: Browser) {
+  try {
+    await b.close();
+  } catch {
+    /* ya cerrado */
+  } finally {
+    releaseSlot();
+  }
+}
+
+function launchChrome(): Promise<Browser> {
   return puppeteer.launch({
     headless: true,
     args: [
@@ -322,7 +362,7 @@ async function renderSegment(a: SegmentArgs) {
     ff.kill('SIGKILL');
     throw e;
   } finally {
-    await browser.close().catch(() => {});
+    await closeBrowser(browser);
   }
 }
 
@@ -352,6 +392,6 @@ export async function renderFrame(projectId: string, format: FormatId, time: num
     await page.screenshot({ type: 'png', path: file as `${string}.png` });
     return { file, url: `/files/${projectId}/exports/${encodeURIComponent(name)}` };
   } finally {
-    await browser.close().catch(() => {});
+    await closeBrowser(browser);
   }
 }
