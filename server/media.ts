@@ -225,3 +225,43 @@ export function resumePendingAssets(): void {
     }
   }
 }
+
+/** Lado mayor de la copia de edición: por encima de esto, el 4K pierde detalle. */
+export const PROXY_LONG_SIDE = 1920;
+
+/**
+ * Copia de render a resolución completa (hasta 3840 px) con fotogramas clave
+ * frecuentes, para exportar en 4K con todo el detalle del original. Se crea la
+ * primera vez que hace falta y se reutiliza.
+ */
+export async function ensureHiresProxy(projectId: string, asset: Asset, onProgress: (p: number) => void): Promise<string | null> {
+  if (asset.type !== 'video') return null;
+  if (Math.max(asset.width ?? 0, asset.height ?? 0) <= PROXY_LONG_SIDE) return null; // la copia normal ya es nativa
+  const dir = mediaDir(projectId);
+  if (asset.hiresProxy && fs.existsSync(path.join(dir, asset.hiresProxy))) return asset.hiresProxy;
+  const base = path.basename(asset.file, path.extname(asset.file));
+  const rel = `.proxy/${base}.hires.mp4`;
+  const tmp = path.join(dir, `.proxy/${base}.hires.part.mp4`);
+  fs.mkdirSync(path.join(dir, '.proxy'), { recursive: true });
+  const fps = asset.fps ?? 30;
+  const outFps = fps > 45 ? 60 : fps > 26 ? 30 : Math.max(24, Math.round(fps));
+  const scale =
+    (asset.width ?? 0) >= (asset.height ?? 0) ? "scale='min(3840,iw)':-2:out_range=tv" : "scale=-2:'min(3840,ih)':out_range=tv";
+  await ffmpegWithProgress(
+    [
+      '-y', '-i', path.join(dir, asset.file),
+      '-map', '0:v:0', '-an',
+      '-vf', `${scale},format=yuv420p`,
+      '-r', String(outFps),
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15',
+      '-g', '6', '-bf', '0', '-tune', 'fastdecode',
+      '-movflags', '+faststart',
+      tmp,
+    ],
+    asset.duration,
+    onProgress,
+  );
+  fs.renameSync(tmp, path.join(dir, rel));
+  updateAsset(projectId, asset.id, { hiresProxy: rel });
+  return rel;
+}

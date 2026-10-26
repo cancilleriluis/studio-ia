@@ -36,6 +36,7 @@ function tc(t: number) {
 
 const STATUS: Record<ExportJob['status'], string> = {
   queued: 'En cola',
+  preparing: 'Preparando el vídeo a resolución completa',
   rendering: 'Renderizando fotogramas',
   audio: 'Mezclando audio',
   encoding: 'Codificando MP4',
@@ -255,7 +256,7 @@ export function ExportDialog() {
                   </button>
                 </>
               )}
-              {['queued', 'rendering', 'audio', 'encoding'].includes(j.status) && (
+              {['queued', 'preparing', 'rendering', 'audio', 'encoding'].includes(j.status) && (
                 <button className="btn sm ghost" onClick={() => api.cancelJob(j.id)}>
                   Cancelar
                 </button>

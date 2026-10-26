@@ -14,6 +14,7 @@ import { projectDuration } from '../shared/ops';
 import { CLIENT_URL } from './config';
 import { mixProjectAudio } from './audiomix';
 import { run } from './ffmpeg';
+import { PROXY_LONG_SIDE, ensureHiresProxy } from './media';
 import { broadcast, exportsDir, loadProject } from './store';
 
 export interface ExportOptions {
@@ -51,7 +52,7 @@ export interface ExportJob {
   id: string;
   projectId: string;
   format: FormatId;
-  status: 'queued' | 'rendering' | 'audio' | 'encoding' | 'done' | 'error' | 'cancelled';
+  status: 'queued' | 'preparing' | 'rendering' | 'audio' | 'encoding' | 'done' | 'error' | 'cancelled';
   progress: number;
   file?: string;
   url?: string;
@@ -64,28 +65,26 @@ export interface ExportJob {
 export const jobs = new Map<string, ExportJob>();
 const cancelled = new Set<string>();
 
-let browserPromise: Promise<Browser> | null = null;
-function getBrowser(): Promise<Browser> {
-  if (!browserPromise) {
-    browserPromise = puppeteer
-      .launch({
-        headless: true,
-        args: [
-          '--autoplay-policy=no-user-gesture-required',
-          '--hide-scrollbars',
-          '--force-color-profile=srgb',
-          '--disable-background-timer-throttling',
-          '--disable-renderer-backgrounding',
-          '--disable-backgrounding-occluded-windows',
-          '--enable-unsafe-swiftshader',
-        ],
-      })
-      .then((b) => {
-        b.on('disconnected', () => (browserPromise = null));
-        return b;
-      });
-  }
-  return browserPromise;
+/**
+ * Cada proceso de render usa su propio Chrome con una sola página: así esa página
+ * está siempre en primer plano. Con varias pestañas en un mismo Chrome, las ocultas
+ * no pintan ni cargan vídeo y la exportación se queda esperando.
+ */
+function launchBrowser(): Promise<Browser> {
+  return puppeteer.launch({
+    headless: true,
+    args: [
+      '--autoplay-policy=no-user-gesture-required',
+      '--hide-scrollbars',
+      '--force-color-profile=srgb',
+      '--disable-background-timer-throttling',
+      '--disable-renderer-backgrounding',
+      '--disable-backgrounding-occluded-windows',
+      '--enable-unsafe-swiftshader',
+      '--disable-background-media-suspend',
+      '--disable-features=BackgroundMediaSuspend,IntensiveWakeUpThrottling',
+    ],
+  });
 }
 
 function slug(s: string) {
@@ -145,10 +144,35 @@ async function runExport(job: ExportJob, opts: ExportOptions) {
     const codec = opts.codec ?? 'h264';
     const encoder = videoEncoder(codec, opts.quality);
 
+    // Por encima de la resolución de la copia de edición (4K), usar el vídeo a resolución completa
+    const hires = Math.max(width, height) * scale > PROXY_LONG_SIDE;
+    if (hires) {
+      const used = new Set<string>();
+      for (const c of p.clips) {
+        if (c.type === 'video') used.add(c.assetId);
+        if (c.type === 'template') {
+          for (const pn of (c.props.panels ?? []) as { assetId?: string }[]) if (pn?.assetId) used.add(pn.assetId);
+          if (c.props.background) used.add(c.props.background);
+        }
+      }
+      const assets = p.assets.filter((a) => used.has(a.id) && a.type === 'video' && Math.max(a.width ?? 0, a.height ?? 0) > PROXY_LONG_SIDE);
+      job.status = 'preparing';
+      emit(job);
+      for (const [k, a] of assets.entries()) {
+        if (cancelled.has(job.id)) throw new Error('cancelled');
+        await ensureHiresProxy(job.projectId, a, (f) => {
+          job.progress = ((k + f) / assets.length) * 0.15;
+          emit(job);
+        });
+      }
+    }
+
     job.status = 'rendering';
     emit(job);
 
-    const workers = Math.max(1, Math.min(Math.ceil(total / 90), 6, Math.floor(os.cpus().length / 2)));
+    // En 4K cada página ocupa 4 veces más memoria: menos procesos en paralelo
+    const maxWorkers = scale > 1 ? 3 : 6;
+    const workers = Math.max(1, Math.min(Math.ceil(total / 90), maxWorkers, Math.floor(os.cpus().length / 2)));
     const per = Math.ceil(total / workers);
     const done = new Array(workers).fill(0);
     let lastEmit = 0;
@@ -158,12 +182,13 @@ async function runExport(job: ExportJob, opts: ExportOptions) {
       lastEmit = now;
       const elapsed = (now - job.startedAt) / 1000;
       const frames = done.reduce((a, b) => a + b, 0);
-      job.progress = (frames / total) * 0.88;
+      job.progress = (hires ? 0.15 : 0) + (frames / total) * (hires ? 0.73 : 0.88);
       job.fps = Math.round((frames / Math.max(elapsed, 0.1)) * 10) / 10;
       emit(job);
     };
 
     const segments: string[] = [];
+    const aborted = { value: false };
     await Promise.all(
       Array.from({ length: workers }, async (_, w) => {
         const from = w * per;
@@ -171,14 +196,28 @@ async function runExport(job: ExportJob, opts: ExportOptions) {
         if (from >= to) return;
         const seg = path.join(tmp, `seg${w}.mp4`);
         segments[w] = seg;
-        await renderSegment({
-          projectId: job.projectId, format: opts.format, width, height, scale, fps, from, to, offset: r0, out: seg, encoder,
+        const args: SegmentArgs = {
+          projectId: job.projectId, format: opts.format, width, height, scale, hires, fps, from, to, offset: r0, out: seg, encoder,
           onFrame: (n) => {
             done[w] = n;
             report();
           },
-          isCancelled: () => cancelled.has(job.id),
-        });
+          isCancelled: () => cancelled.has(job.id) || aborted.value,
+        };
+        // Un fallo puntual (p. ej. una página que no arranca) se reintenta una vez
+        try {
+          await renderSegment(args);
+        } catch (e) {
+          if (cancelled.has(job.id) || aborted.value) throw e;
+          console.warn(`[render] reintentando el tramo ${w + 1}:`, String((e as Error)?.message ?? e).slice(0, 200));
+          done[w] = 0;
+          try {
+            await renderSegment(args);
+          } catch (e2) {
+            aborted.value = true; // detener el resto de tramos: el trabajo ya no puede terminar
+            throw e2;
+          }
+        }
       }),
     );
     if (cancelled.has(job.id)) throw new Error('cancelled');
@@ -234,6 +273,7 @@ interface SegmentArgs {
   width: number;
   height: number;
   scale: number;
+  hires: boolean;
   fps: number;
   from: number;
   to: number;
@@ -245,8 +285,8 @@ interface SegmentArgs {
 }
 
 async function renderSegment(a: SegmentArgs) {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
+  const browser = await launchBrowser();
+  const page = (await browser.pages())[0] ?? (await browser.newPage());
   const ff = spawn('ffmpeg', [
     '-hide_banner', '-y',
     '-f', 'image2pipe', '-framerate', String(a.fps), '-c:v', 'mjpeg', '-i', 'pipe:0',
@@ -267,7 +307,7 @@ async function renderSegment(a: SegmentArgs) {
       if (m.type() === 'error') console.warn('[render page]', m.text());
     });
     page.on('pageerror', (e) => console.warn('[render page error]', e));
-    await openRenderPage(page, a.projectId, a.format, a.width, a.height, a.scale);
+    await openRenderPage(page, a.projectId, a.format, a.width, a.height, a.scale, a.hires);
     for (let i = a.from; i < a.to; i++) {
       if (a.isCancelled()) throw new Error('cancelled');
       const t = a.offset + i / a.fps;
@@ -282,23 +322,25 @@ async function renderSegment(a: SegmentArgs) {
     ff.kill('SIGKILL');
     throw e;
   } finally {
-    await page.close().catch(() => {});
+    await browser.close().catch(() => {});
   }
 }
 
-async function openRenderPage(page: import('puppeteer').Page, projectId: string, format: FormatId, width: number, height: number, scale: number) {
+async function openRenderPage(page: import('puppeteer').Page, projectId: string, format: FormatId, width: number, height: number, scale: number, hires = false) {
   await page.setViewport({ width, height, deviceScaleFactor: scale });
-  const url = `${CLIENT_URL}/?render=1&project=${encodeURIComponent(projectId)}&format=${encodeURIComponent(format)}`;
+  const url = `${CLIENT_URL}/?render=1&project=${encodeURIComponent(projectId)}&format=${encodeURIComponent(format)}${hires ? '&hires=1' : ''}`;
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForFunction('window.__studio && window.__studio.ready === true', { timeout: 120000 });
+  // Comprobar por tiempo y no por fotograma pintado: las pestañas en segundo plano
+  // (al exportar con varios procesos) no pintan y la espera no terminaría nunca.
+  await page.waitForFunction('window.__studio && window.__studio.ready === true', { timeout: 120000, polling: 100 });
 }
 
 /** Exporta un único fotograma en PNG (miniaturas de YouTube, portadas de Reels...). */
 export async function renderFrame(projectId: string, format: FormatId, time: number, scale = 1): Promise<{ file: string; url: string }> {
   const p = loadProject(projectId);
   const { width, height } = FORMATS[format];
-  const browser = await getBrowser();
-  const page = await browser.newPage();
+  const browser = await launchBrowser();
+  const page = (await browser.pages())[0] ?? (await browser.newPage());
   try {
     await openRenderPage(page, projectId, format, width, height, Math.min(2, Math.max(0.25, scale)));
     await page.evaluate((tt) => (window as any).__studio.seek(tt), time);
@@ -310,6 +352,6 @@ export async function renderFrame(projectId: string, format: FormatId, time: num
     await page.screenshot({ type: 'png', path: file as `${string}.png` });
     return { file, url: `/files/${projectId}/exports/${encodeURIComponent(name)}` };
   } finally {
-    await page.close().catch(() => {});
+    await browser.close().catch(() => {});
   }
 }

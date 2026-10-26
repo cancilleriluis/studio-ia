@@ -20,6 +20,7 @@ export interface Asset {
   type: AssetType;
   file: string; // ruta relativa dentro de media/
   proxy?: string; // versión de edición (H.264 intra) para vídeo
+  hiresProxy?: string; // copia de render a resolución completa (exportación 4K)
   duration: number;
   width?: number;
   height?: number;

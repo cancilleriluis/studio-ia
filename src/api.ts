@@ -32,7 +32,7 @@ export interface ExportJob {
   id: string;
   projectId: string;
   format: FormatId;
-  status: 'queued' | 'rendering' | 'audio' | 'encoding' | 'done' | 'error' | 'cancelled';
+  status: 'queued' | 'preparing' | 'rendering' | 'audio' | 'encoding' | 'done' | 'error' | 'cancelled';
   progress: number;
   file?: string;
   url?: string;

@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react';
 import type { Asset } from '../../shared/types';
-import { renderMode, track } from './renderSync';
+import { renderHires, renderMode, track } from './renderSync';
 import { setChannel } from './audioEngine';
 
 export function assetUrl(projectId: string, asset: Asset, original = false): string {
-  const rel = !original && asset.proxy ? asset.proxy : asset.file;
+  const rel = original ? asset.file : renderHires && asset.hiresProxy ? asset.hiresProxy : asset.proxy ?? asset.file;
   return `/files/${encodeURIComponent(projectId)}/media/${rel.split('/').map(encodeURIComponent).join('/')}`;
 }
 
