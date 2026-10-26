@@ -635,3 +635,10 @@ export function nudgeClips(p: Project, ids: string[], delta: number): void {
   const ok = moving.every((c) => isFree(p, c.trackId, c.start + delta, c.duration, ids));
   if (ok) for (const c of moving) c.start = Math.max(0, c.start + delta);
 }
+
+/** Final del contenido principal: el último clip de la pista de vídeo principal (V1). */
+export function mainContentEnd(p: Project): number {
+  const main = mainVisualTrack(p);
+  const ends = p.clips.filter((c) => c.trackId === main).map(clipEnd);
+  return ends.length ? Math.max(...ends) : projectDuration(p);
+}

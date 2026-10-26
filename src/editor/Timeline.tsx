@@ -25,6 +25,7 @@ import {
   clipEnd,
   createMediaClip,
   findFreeTrack,
+  mainContentEnd,
   deleteClips,
   isFree,
   maxSourceDuration,
@@ -39,6 +40,19 @@ import { mediaFileUrl } from '../engine/media';
 import { useEditor } from '../store';
 import { CLIP_COLORS, addAssetAt, addEffectAt, addTemplateAt, formatTC, removeSilences } from './util';
 import { Meters } from './Meters';
+
+interface SnapPoint {
+  t: number;
+  label: string;
+  strong?: boolean;
+}
+
+function clipLabel(p: Project, c: Clip): string {
+  if (c.type === 'template') return getTemplate(c.template)?.name ?? 'plantilla';
+  if (c.type === 'effect') return getEffect(c.effect)?.name ?? 'efecto';
+  const a = p.assets.find((x) => x.id === c.assetId);
+  return a?.name ?? c.name ?? 'clip';
+}
 
 const RULER_H = 26;
 const CAP_H = 30;
@@ -275,7 +289,7 @@ interface DragState {
   startX: number;
   startY: number;
   clipId: string;
-  originals: { id: string; start: number; trackId: string }[];
+  originals: { id: string; start: number; duration: number; trackId: string }[];
   lastValid: number;
   started: boolean;
 }
@@ -290,7 +304,8 @@ export function Timeline() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headsRef = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ left: 0, w: 1000 });
-  const [snapX, setSnapX] = useState<number | null>(null);
+  const [snapHit, setSnapHit] = useState<SnapPoint | null>(null);
+  const [dragInfo, setDragInfo] = useState<{ x: number; y: number; lines: string[] } | null>(null);
   const [dropTrack, setDropTrack] = useState<string | null>(null);
   const drag = useRef<DragState | null>(null);
   const dur = projectDuration(project);
@@ -332,22 +347,40 @@ export function Timeline() {
     return (clientX - el.getBoundingClientRect().left + el.scrollLeft) / useEditor.getState().zoom;
   };
 
-  const snapCandidates = useCallback(
-    (exclude: Set<string>) => {
-      const p = useEditor.getState().project!;
-      const c = [0, useEditor.getState().time, ...p.markers.map((m) => m.time)];
-      for (const cl of p.clips) if (!exclude.has(cl.id)) c.push(cl.start, clipEnd(cl));
-      return c;
-    },
-    [],
-  );
+  /** Puntos a los que engancha el imán, con nombre. Los «fuertes» atraen desde más lejos. */
+  const snapCandidates = useCallback((exclude: Set<string>): SnapPoint[] => {
+    const s = useEditor.getState();
+    const p = s.project!;
+    const pts: SnapPoint[] = [
+      { t: 0, label: 'Inicio', strong: true },
+      { t: s.time, label: 'Cabezal', strong: true },
+      { t: mainContentEnd(p), label: 'Final del vídeo', strong: true },
+      { t: projectDuration(p), label: 'Final del proyecto' },
+      ...p.markers.map((m) => ({ t: m.time, label: m.label })),
+    ];
+    if (s.inPoint !== null) pts.push({ t: s.inPoint, label: 'Entrada', strong: true });
+    if (s.outPoint !== null) pts.push({ t: s.outPoint, label: 'Salida', strong: true });
+    for (const cl of p.clips) {
+      if (exclude.has(cl.id)) continue;
+      const name = clipLabel(p, cl);
+      pts.push({ t: cl.start, label: `Inicio de ${name}` }, { t: clipEnd(cl), label: `Final de ${name}` });
+    }
+    return pts;
+  }, []);
 
-  const snap = (t: number, cands: number[]): [number, number | null] => {
-    if (!useEditor.getState().snapping) return [t, null];
-    const thr = 8 / useEditor.getState().zoom;
-    let best: number | null = null;
-    for (const c of cands) if (Math.abs(c - t) < thr && (best === null || Math.abs(c - t) < Math.abs(best - t))) best = c;
-    return best === null ? [t, null] : [best, best];
+  /** Imán + ajuste a fotograma. ⌘/Ctrl durante el arrastre lo desactiva. */
+  const snap = (t: number, cands: SnapPoint[], free = false): [number, SnapPoint | null] => {
+    const s = useEditor.getState();
+    const fps = s.project!.fps;
+    const frame = (v: number) => Math.round(v * fps) / fps;
+    if (!s.snapping || free) return [frame(t), null];
+    let best: SnapPoint | null = null;
+    for (const c of cands) {
+      const thr = (c.strong ? 16 : 11) / s.zoom;
+      const d = Math.abs(c.t - t);
+      if (d < thr && (best === null || d < Math.abs(best.t - t) || (d === Math.abs(best.t - t) && c.strong))) best = c;
+    }
+    return best ? [best.t, best] : [frame(t), null];
   };
 
   const trackAtClient = (clientY: number): string | null => {
@@ -364,7 +397,7 @@ export function Timeline() {
     if (p.tracks.find((t) => t.id === clip.trackId)?.locked) return;
     if (s.tool === 'razor') {
       const t = timeAtClient(e.clientX);
-      const [ts] = e.shiftKey ? [t, null] : snap(t, [s.time]);
+      const [ts] = snap(t, [{ t: s.time, label: 'Cabezal', strong: true }], e.shiftKey);
       if (e.altKey) s.commit((d) => splitAt(d, ts));
       else s.commit((d) => splitClip(d, clip.id, ts));
       return;
@@ -383,7 +416,7 @@ export function Timeline() {
       startX: e.clientX,
       startY: e.clientY,
       clipId: clip.id,
-      originals: p.clips.filter((c) => ids.includes(c.id)).map((c) => ({ id: c.id, start: c.start, trackId: c.trackId })),
+      originals: p.clips.filter((c) => ids.includes(c.id)).map((c) => ({ id: c.id, start: c.start, duration: c.duration, trackId: c.trackId })),
       lastValid: 0,
       started: false,
     };
@@ -434,20 +467,38 @@ export function Timeline() {
     }
     const exclude = new Set(d.originals.map((o) => o.id));
     const cands = snapCandidates(exclude);
+    const free = e.metaKey || e.ctrlKey;
+    const fps = s.project!.fps;
     const base = s.project!;
     const main = base.clips.find((c) => c.id === d.clipId)!;
+    // Duración al empezar a arrastrar: el estado en vivo ya va modificado y acumularía el error
+    const dur0 = d.originals.find((o) => o.id === d.clipId)!.duration;
     const orig = d.originals.find((o) => o.id === d.clipId)!;
 
     if (d.mode === 'move') {
       let delta = dx / s.zoom;
       // Imán sobre el inicio o el final del clip principal
-      const [sStart, hitA] = snap(orig.start + delta, cands);
-      const [sEnd, hitB] = snap(orig.start + delta + main.duration, cands);
-      if (hitA !== null) delta = sStart - orig.start;
-      else if (hitB !== null) delta = sEnd - main.duration - orig.start;
-      setSnapX(hitA ?? hitB);
+      const [sStart, hitA] = snap(orig.start + delta, cands, free);
+      const [sEnd, hitB] = snap(orig.start + delta + dur0, cands, free);
+      // Gana el enganche más cercano entre el inicio y el final del clip
+      const dA = hitA ? Math.abs(hitA.t - (orig.start + delta)) : Infinity;
+      const dB = hitB ? Math.abs(hitB.t - (orig.start + delta + dur0)) : Infinity;
+      if (hitA && dA <= dB) delta = sStart - orig.start;
+      else if (hitB) delta = sEnd - dur0 - orig.start;
+      else delta = sStart - orig.start;
+      const hit = hitA && dA <= dB ? hitA : hitB;
+      setSnapHit(hit);
       const minStart = Math.min(...d.originals.map((o) => o.start));
       delta = Math.max(delta, -minStart);
+      const newStart = orig.start + delta;
+      setDragInfo({
+        x: e.clientX,
+        y: e.clientY,
+        lines: [
+          `Inicio ${formatTC(newStart, fps)} · Final ${formatTC(newStart + dur0, fps)}`,
+          `Δ ${delta >= 0 ? '+' : '−'}${formatTC(Math.abs(delta), fps)}${hit ? ` · ⟂ ${hit.label}` : free ? ' · imán desactivado' : ''}`,
+        ],
+      });
       // Cambio de pista (solo un clip)
       let targetTrack: string | null = null;
       if (d.originals.length === 1) {
@@ -476,17 +527,33 @@ export function Timeline() {
         }
       });
     } else {
-      const t = d.mode === 'l' ? orig.start + dx / s.zoom : orig.start + main.duration + dx / s.zoom;
-      const [ts, hit] = snap(t, cands);
-      setSnapX(hit);
-      s.transient((p) => trimClip(p, d.clipId, d.mode === 'l' ? 'start' : 'end', ts));
+      const t = d.mode === 'l' ? orig.start + dx / s.zoom : orig.start + dur0 + dx / s.zoom;
+      const [ts, hit] = snap(t, cands, free);
+      let res = { start: orig.start, dur: dur0 };
+      s.transient((p) => {
+        trimClip(p, d.clipId, d.mode === 'l' ? 'start' : 'end', ts);
+        const c = p.clips.find((x) => x.id === d.clipId)!;
+        res = { start: c.start, dur: c.duration };
+      });
+      // Si el clip no puede llegar (fin del medio original o clip vecino), avisarlo
+      const reached = d.mode === 'l' ? Math.abs(res.start - ts) < 1e-3 : Math.abs(res.start + res.dur - ts) < 1e-3;
+      setSnapHit(reached ? hit : null);
+      setDragInfo({
+        x: e.clientX,
+        y: e.clientY,
+        lines: [
+          `${d.mode === 'l' ? 'Inicio' : 'Final'} ${formatTC(d.mode === 'l' ? res.start : res.start + res.dur, fps)} · Duración ${formatTC(res.dur, fps)}`,
+          reached ? (hit ? `⟂ ${hit.label}` : free ? 'Imán desactivado' : '⌘ para ajustar sin imán') : 'Límite: fin del medio o clip vecino',
+        ],
+      });
     }
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
     const d = drag.current;
     drag.current = null;
-    setSnapX(null);
+    setSnapHit(null);
+    setDragInfo(null);
     // Clic sin arrastrar sobre un clip: llevar el cabezal a ese punto
     if (d?.mode === 'move' && !d.started && !e.shiftKey && !e.metaKey) {
       useEditor.getState().setTime(Math.max(0, timeAtClient(e.clientX)));
@@ -545,6 +612,13 @@ export function Timeline() {
 
   return (
     <div className="timeline" onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+      {dragInfo && (
+        <div className="drag-info" style={{ left: dragInfo.x + 14, top: dragInfo.y - 52 }}>
+          {dragInfo.lines.map((l, i) => (
+            <div key={i}>{l}</div>
+          ))}
+        </div>
+      )}
       <div className="tl-toolbar">
         <button className={`icon-btn ${tool === 'select' ? 'active' : ''}`} title="Selección (V)" onClick={() => st.set({ tool: 'select' })}>
           <MousePointer2 size={15} />
@@ -680,7 +754,11 @@ export function Timeline() {
             ))}
             <IORange zoom={zoom} />
             <Playhead zoom={zoom} scrollRef={scrollRef} />
-            {snapX !== null && <div className="snap-line" style={{ left: snapX * zoom }} />}
+            {snapHit && (
+              <div className="snap-line" style={{ left: snapHit.t * zoom }}>
+                <span className="snap-label">{snapHit.label}</span>
+              </div>
+            )}
           </div>
         </div>
         <Meters />

@@ -4,6 +4,9 @@ import {
   AudioWaveform,
   BetweenHorizontalStart,
   Copy,
+  ArrowRightToLine,
+  ArrowLeftToLine,
+  MoveHorizontal,
   Mic,
   PictureInPicture2,
   ScanFace,
@@ -13,7 +16,7 @@ import {
   Unlink,
 } from 'lucide-react';
 import type { MediaClip } from '../../shared/types';
-import { defaultTransform, deleteClips, duplicateClip, splitAt, unlinkAudio } from '../../shared/ops';
+import { clipEnd, defaultTransform, deleteClips, duplicateClip, mainContentEnd, splitAt, trimClip, unlinkAudio } from '../../shared/ops';
 import { useEditor } from '../store';
 import { openSource } from './SourceMonitor';
 import { autoReframe, removeSilences } from './util';
@@ -58,6 +61,15 @@ export function ContextMenu({ menu, onClose }: { menu: CtxMenuState; onClose: ()
     { label: 'Cortar en el cabezal', icon: Scissors, hint: 'S', run: () => st.commit((p) => splitAt(p, st.time, [clip.id])) },
     { label: 'Duplicar', icon: Copy, hint: '⌘D', run: () => { let id: string | null = null; st.commit((p) => (id = duplicateClip(p, clip.id))); if (id) st.select([id]); } },
   ];
+  // Ajustes de duración precisos
+  const end = mainContentEnd(project);
+  const t = st.time;
+  if (Math.abs(clipEnd(clip) - end) > 1 / project.fps && end > clip.start)
+    items.push({ label: 'Alargar hasta el final del vídeo', icon: MoveHorizontal, run: () => st.commit((p) => trimClip(p, clip.id, 'end', end)) });
+  if (t > clip.start + 0.05 && Math.abs(clipEnd(clip) - t) > 1 / project.fps)
+    items.push({ label: 'Terminar en el cabezal', icon: ArrowLeftToLine, run: () => st.commit((p) => trimClip(p, clip.id, 'end', t)) });
+  if (t < clipEnd(clip) - 0.05 && Math.abs(clip.start - t) > 1 / project.fps)
+    items.push({ label: 'Empezar en el cabezal', icon: ArrowRightToLine, run: () => st.commit((p) => trimClip(p, clip.id, 'start', t)) });
   if (asset && clip.type !== 'audio') items.push({ label: 'Abrir en el monitor de origen', icon: BetweenHorizontalStart, run: () => openSource(asset.id) });
   if (hasSound) {
     items.push('-');
