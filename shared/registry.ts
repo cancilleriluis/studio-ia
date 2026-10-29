@@ -133,6 +133,37 @@ export const TEMPLATES: TemplateDef[] = [
     ],
   },
   {
+    id: 'screenshot',
+    name: 'Captura (noticia o post)',
+    description:
+      'Elige la captura de una noticia o un post y listo: aparece como tarjeta flotante sobre una versión desenfocada de sí misma que cubre todo el fondo, con un acercamiento lento.',
+    category: 'papers',
+    defaultDuration: 4,
+    animIn: 'none',
+    animOut: 'blur',
+    fields: [
+      { key: 'media', label: 'Captura', type: 'asset', default: '', assetTypes: ['image', 'video'] },
+      { key: 'style', label: 'Estilo', type: 'select', default: 'card', options: [
+        { value: 'card', label: 'Tarjeta redondeada' },
+        { value: 'torn', label: 'Papel rasgado con cinta' },
+        { value: 'plain', label: 'Sin marco' },
+      ] },
+      { key: 'background', label: 'Fondo', type: 'select', default: 'blur', options: [
+        { value: 'blur', label: 'La captura desenfocada' },
+        ...PAPER_BACKGROUNDS,
+      ] },
+      { key: 'focus', label: 'Acercar hacia', type: 'select', default: 'top', options: [
+        { value: 'top', label: 'Arriba (titular)' },
+        { value: 'center', label: 'Centro' },
+        { value: 'bottom', label: 'Abajo' },
+      ] },
+      { key: 'zoom', label: 'Acercamiento', type: 'number', default: 1.15, min: 1, max: 2, step: 0.05 },
+      { key: 'tilt', label: 'Inclinación (°)', type: 'number', default: -1.5, min: -15, max: 15, step: 0.5 },
+      { key: 'accent', label: 'Color de la cinta', type: 'color', default: '#f5a524' },
+      { key: 'stopMotion', label: 'Stop motion (12 fps)', type: 'boolean', default: false },
+    ],
+  },
+  {
     id: 'stat-bars',
     name: 'Gráfico de barras (collage)',
     description:

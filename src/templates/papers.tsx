@@ -1042,9 +1042,117 @@ function CollageTitle(p: TplProps) {
   );
 }
 
+/* ───────────── Captura (noticia o post) ───────────── */
+const FOCUS_Y: Record<string, number> = { top: 0.22, center: 0.5, bottom: 0.78 };
+
+function Screenshot(p: TplProps) {
+  const { props, t, dur, W, H, u, vertical } = p;
+  const asset = p.assets.find((a) => a.id === props.media);
+  const look = props.style ?? 'card';
+  const bg = props.background ?? 'blur';
+  const accent = props.accent ?? '#f5a524';
+  const clock = collageClock(t, !!props.stopMotion);
+  const { tq, jitter } = clock;
+
+  // La captura cabe en la zona segura manteniendo su proporción.
+  const ratio = asset?.width && asset?.height ? asset.height / asset.width : 0.75;
+  const maxW = W * (vertical ? 0.88 : 0.72);
+  const maxH = H * (vertical ? 0.66 : 0.7);
+  const cw = Math.min(maxW, maxH / ratio);
+  const ch = cw * ratio;
+  const pad = look === 'torn' ? 16 * u : 0;
+
+  // Entrada con rebote y, después, acercamiento lento hacia la zona elegida.
+  const enter = Math.max(0, ease.outBack(prog(tq, 0, 0.6)));
+  const push = ease.inOutSine(prog(t, 0.5, Math.max(0.6, dur)));
+  const zoom = lerp(1, props.zoom ?? 1.15, push);
+  const fy = FOCUS_Y[props.focus ?? 'top'] ?? 0.5;
+  const tilt = props.tilt ?? -1.5;
+  const cardTop = (H - ch) / 2 - (vertical ? H * 0.02 : 0);
+  // Punto de la pantalla hacia el que acerca la cámara: la altura elegida de la captura.
+  const originY = cardTop + ch * fy;
+
+  const media = asset ? <PanelMedia {...p} assetId={asset.id} inPoint={0} /> : <div className="tpl-placeholder" style={{ fontSize: 40 * u }}>Elige una captura</div>;
+
+  return (
+    <div className="tpl-root">
+      {bg === 'blur' ? (
+        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#111' }}>
+          {asset && (
+            <div style={{ position: 'absolute', inset: -60 * u, filter: `blur(${42 * u}px) brightness(.55) saturate(1.2)`, transform: `scale(${1.1 + 0.05 * push})` }}>
+              <PanelMedia {...p} assetId={asset.id} inPoint={0} />
+            </div>
+          )}
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: GRAIN_LIGHT, backgroundSize: `${256 * u}px ${256 * u}px`, opacity: 0.5 }} />
+        </div>
+      ) : (
+        <Backdrop kind={bg} u={u} />
+      )}
+
+      <div style={{ position: 'absolute', inset: 0, transformOrigin: `50% ${originY}px`, transform: `scale(${zoom})` }}>
+        <div
+          style={{
+            position: 'absolute',
+            left: (W - cw) / 2 - pad,
+            top: cardTop - pad,
+            width: cw + pad * 2,
+            height: ch + pad * 2,
+            opacity: clamp(prog(tq, 0, 0.08) * 10),
+            transform: `translateY(${(1 - enter) * 90 * u}px) scale(${lerp(0.88, 1, enter)}) rotate(${tilt + (1 - enter) * -5 + jitter(80, 0.3)}deg)`,
+            filter: `drop-shadow(0 ${26 * u}px ${44 * u}px rgba(0,0,0,.45))`,
+          }}
+        >
+          {look === 'torn' ? (
+            <>
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: '#fbfbf8',
+                  backgroundImage: SHEET_GRAIN,
+                  backgroundSize: `${256 * u}px ${256 * u}px`,
+                  clipPath: tornClip(7, 14 * u, true),
+                }}
+              >
+                <div style={{ position: 'absolute', inset: pad, overflow: 'hidden' }}>{media}</div>
+              </div>
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: -16 * u,
+                  width: Math.min(220 * u, cw * 0.35),
+                  height: 46 * u,
+                  transform: 'translateX(-50%) rotate(-3deg)',
+                  background: accent,
+                  opacity: 0.8,
+                }}
+              />
+            </>
+          ) : (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                overflow: 'hidden',
+                borderRadius: look === 'card' ? 26 * u : 0,
+                border: look === 'card' ? `${2 * u}px solid rgba(255,255,255,.22)` : undefined,
+                background: '#fff',
+              }}
+            >
+              {media}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const PAPERS_COMPONENTS = {
   paper: Paper,
   'stat-bars': StatBars,
   headlines: Headlines,
   'collage-title': CollageTitle,
+  screenshot: Screenshot,
 };
