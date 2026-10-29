@@ -98,9 +98,9 @@ let events: EventSource | null = null;
 let raf = 0;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-function scheduleSave() {
+function scheduleSave(delay = 500) {
   clearTimeout(saveTimer);
-  useEditor.setState({ saving: 'pending' });
+  if (useEditor.getState().saving !== 'error') useEditor.setState({ saving: 'pending' });
   saveTimer = setTimeout(async () => {
     const p = useEditor.getState().project;
     if (!p) return;
@@ -111,8 +111,17 @@ function scheduleSave() {
     } catch (e) {
       console.error(e);
       useEditor.setState({ saving: 'error' });
+      // Si el servidor no responde, reintentar: lo editado se guarda en cuanto vuelva
+      scheduleSave(3000);
     }
-  }, 500);
+  }, delay);
+}
+
+// Avisar antes de cerrar o recargar la pestaña con cambios sin guardar
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', (e) => {
+    if (useEditor.getState().saving !== 'idle') e.preventDefault();
+  });
 }
 
 export const useEditor = create<EditorState>((set, get) => ({

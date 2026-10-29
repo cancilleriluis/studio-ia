@@ -19,13 +19,15 @@ export function RenderView() {
   const params = new URLSearchParams(location.search);
   const id = params.get('project')!;
   const format = (params.get('format') ?? undefined) as FormatId | undefined;
+  // En una exportación se usa la copia tomada al pulsar Exportar, no el fichero actual
+  const job = params.get('job');
   const [project, setProject] = useState<Project | null>(null);
   const [time, setTime] = useState(0);
 
   useEffect(() => {
     document.body.style.background = '#000';
-    api.project(id).then((p) => setProject(normalizeProject(p)));
-  }, [id]);
+    (job ? api.jobProject(job) : api.project(id)).then((p) => setProject(normalizeProject(p)));
+  }, [id, job]);
 
   useEffect(() => {
     if (!project) return;

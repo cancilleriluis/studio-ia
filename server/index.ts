@@ -23,7 +23,7 @@ import {
 } from './store';
 import { importFile, resolveImportPath, resumePendingAssets } from './media';
 import { readTranscript, transcribeAsset, whisperStatus } from './transcribe';
-import { cancelExport, jobs, renderFrame, startExport } from './render';
+import { cancelExport, jobProject, jobs, renderFrame, startExport } from './render';
 import { aiAvailable, chat, resetChat } from './ai';
 
 process.on('unhandledRejection', (e) => console.error('[studio] error no capturado', e));
@@ -142,6 +142,14 @@ app.get('/api/projects/:id/assets/:assetId/transcript', wrap((req) => readTransc
 
 app.post('/api/projects/:id/export', wrap((req) => {
   const id = pid(req);
+  // La interfaz envía el proyecto tal y como se ve: se guarda antes de exportar, así
+  // no se pierde lo editado en el último medio segundo (el guardado va con retardo).
+  const sent = req.body?.project as Project | undefined;
+  if (sent) {
+    if (sent.id !== id) throw new Error('id no coincide');
+    saveFromClient(sent);
+  }
+  const snapshot = loadProject(id);
   const formats: FormatId[] = (req.body?.formats ?? [loadProject(id).format]).filter((f: FormatId) => FORMAT_IDS.includes(f));
   return formats.map((format) =>
     startExport(id, {
@@ -152,8 +160,14 @@ app.post('/api/projects/:id/export', wrap((req) => {
       range: req.body?.range,
       scale: Number(req.body?.scale) || 1,
       codec: req.body?.codec === 'hevc' ? 'hevc' : 'h264',
-    }),
+    }, snapshot),
   );
+}));
+
+app.get('/api/jobs/:jobId/project', wrap((req) => {
+  const p = jobProject(String(req.params.jobId));
+  if (!p) throw new Error('Trabajo no encontrado');
+  return p;
 }));
 
 app.post('/api/projects/:id/frame', wrap(async (req) => {
