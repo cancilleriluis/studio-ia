@@ -167,7 +167,7 @@ export function LumetriSection({ clip, project, b }: { clip: MediaClip; project:
   const g = { ...defaultGrade(), ...(clip.grade ?? {}) };
   const st = useEditor.getState();
   const fileRef = useRef<HTMLInputElement>(null);
-  const luts = project.assets.filter((a) => a.type === 'lut');
+  const luts = project.assets.filter((a) => a.type === 'lut' && !a.removed);
   const slider = (label: string, k: keyof Grade, min: number, max: number, step = 0.01) => (
     <div className="field" key={k}>
       <label>{label}</label>

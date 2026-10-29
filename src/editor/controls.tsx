@@ -96,7 +96,7 @@ export function TextInput({ value, onChange, multiline }: { value: string; onCha
 }
 
 export function AssetPicker({ value, onChange, types }: { value: string; onChange: (v: string) => void; types?: string[] }) {
-  const assets = useEditor((s) => s.project!.assets).filter((a) => !types || types.includes(a.type));
+  const assets = useEditor((s) => s.project!.assets).filter((a) => (!a.removed || a.id === value) && (!types || types.includes(a.type)));
   return (
     <select value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
       <option value="">— Ninguno —</option>

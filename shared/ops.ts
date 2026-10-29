@@ -75,6 +75,7 @@ export function normalizeProject(p: Project): Project {
   p.tracks ??= base.tracks;
   p.clips ??= [];
   p.markers ??= [];
+  p.mediaFolders ??= [];
   p.audio = { ...base.audio, ...(p.audio ?? {}) };
   p.captions = {
     ...base.captions,

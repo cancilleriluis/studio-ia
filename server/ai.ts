@@ -252,7 +252,7 @@ function compactProject(p: Project) {
     fps: p.fps,
     duration: Math.round(projectDuration(p) * 100) / 100,
     audio: p.audio,
-    assets: p.assets.map((a) => ({
+    assets: p.assets.filter((a) => !a.removed).map((a) => ({
       id: a.id,
       name: a.name,
       type: a.type,

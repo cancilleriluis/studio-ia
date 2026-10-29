@@ -233,7 +233,7 @@ export function restoreHistory(id: string, file: string): Project {
   // Conservar los medios actuales (los derivados pueden haber cambiado desde entonces)
   const current = loadProject(id);
   const known = new Map(current.assets.map((a) => [a.id, a]));
-  p.assets = p.assets.filter((a) => known.has(a.id)).map((a) => ({ ...known.get(a.id)!, name: a.name }));
+  p.assets = p.assets.filter((a) => known.has(a.id)).map((a) => ({ ...known.get(a.id)!, name: a.name, folder: a.folder, removed: a.removed }));
   for (const a of current.assets) if (!p.assets.some((x) => x.id === a.id)) p.assets.push(a);
   p.updatedAt = Date.now();
   writeProject(p);

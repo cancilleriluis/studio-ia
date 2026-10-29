@@ -9,7 +9,7 @@ import { addTemplateAt } from './util';
 
 /** Mini proyecto para previsualizar una plantilla en bucle. */
 function demoProject(def: TemplateDef, base: Project): Project {
-  const media = base.assets.filter((a) => (a.type === 'video' || a.type === 'image') && a.status === 'ready');
+  const media = base.assets.filter((a) => (a.type === 'video' || a.type === 'image') && a.status === 'ready' && !a.removed);
   const props = defaultsFor(def.fields);
   if (props.panels && media.length) props.panels = props.panels.map((p: any, i: number) => ({ ...p, assetId: media[i % media.length].id, in: i * 2 }));
   const clips: Project['clips'] = [];
