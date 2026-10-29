@@ -34,7 +34,7 @@ export interface TemplateDef {
   id: string;
   name: string;
   description: string;
-  category: 'rótulos' | 'layouts' | 'títulos' | 'texto' | 'elementos';
+  category: 'papers' | 'rótulos' | 'layouts' | 'títulos' | 'texto' | 'elementos';
   defaultDuration: number;
   animIn: AnimId;
   animOut: AnimId;
@@ -78,6 +78,16 @@ const POSITIONS = [
   { value: 'center', label: 'Centro' },
 ];
 
+/** Fondos de papel de la sección «Papers». */
+const PAPER_BACKGROUNDS = [
+  { value: 'paper', label: 'Papel texturizado' },
+  { value: 'grid', label: 'Papel cuadriculado' },
+  { value: 'pink', label: 'Póster rosado' },
+  { value: 'dark', label: 'Cartón oscuro' },
+  { value: 'dim', label: 'Oscurecer' },
+  { value: 'none', label: 'Ninguno' },
+];
+
 const panel = (extra: Field[]): Field[] => [
   { key: 'assetId', label: 'Medio', type: 'asset', default: '', assetTypes: ['video', 'image'] },
   { key: 'in', label: 'Inicio en la fuente (s)', type: 'number', default: 0, min: 0, step: 0.1 },
@@ -85,6 +95,124 @@ const panel = (extra: Field[]): Field[] => [
 ];
 
 export const TEMPLATES: TemplateDef[] = [
+  {
+    id: 'paper',
+    name: 'Paper (collage)',
+    description:
+      'Hoja de un paper que cae sobre papel texturizado, con acercamiento al título y marcas a mano (rotulador, subrayado o círculo) en las frases entre *asteriscos*.',
+    category: 'papers',
+    defaultDuration: 6,
+    animIn: 'none',
+    animOut: 'blur',
+    fields: [
+      { key: 'source', label: 'Fuente / revista', type: 'text', default: 'arXiv · 2026' },
+      { key: 'title', label: 'Título (*frase* = marcada)', type: 'textarea', default: 'Small models can *reason* like *large ones*' },
+      { key: 'authors', label: 'Autores', type: 'textarea', default: 'A. Pérez · L. Chen · M. Rossi\nStanford University · Google DeepMind' },
+      {
+        key: 'abstract',
+        label: 'Resumen (*frase* = marcada)',
+        type: 'textarea',
+        default:
+          'We show that a 3B-parameter model trained on synthetic reasoning traces *matches models 20x its size* on math and coding benchmarks, while running on a single laptop GPU.',
+      },
+      { key: 'note', label: 'Nota adhesiva', type: 'text', default: 'Nuevo paper' },
+      { key: 'image', label: 'Recorte (figura o foto)', type: 'asset', default: '', assetTypes: ['image', 'video'] },
+      { key: 'bw', label: 'Recorte en blanco y negro', type: 'boolean', default: true },
+      { key: 'mark', label: 'Marca', type: 'select', default: 'marker', options: [
+        { value: 'marker', label: 'Rotulador' },
+        { value: 'underline', label: 'Subrayado a mano' },
+        { value: 'circle', label: 'Círculo a mano' },
+      ] },
+      { key: 'accent', label: 'Color de las marcas', type: 'color', default: '#f5a524' },
+      { key: 'font', label: 'Fuente del título', type: 'font', default: 'Playfair Display Variable' },
+      { key: 'background', label: 'Fondo', type: 'select', default: 'paper', options: PAPER_BACKGROUNDS },
+      { key: 'zoom', label: 'Acercamiento', type: 'number', default: 1.45, min: 1, max: 2, step: 0.05 },
+      { key: 'tilt', label: 'Inclinación (°)', type: 'number', default: -2.5, min: -15, max: 15, step: 0.5 },
+      { key: 'halftone', label: 'Tramas de puntos', type: 'boolean', default: true },
+      { key: 'stopMotion', label: 'Stop motion (12 fps)', type: 'boolean', default: true },
+    ],
+  },
+  {
+    id: 'stat-bars',
+    name: 'Gráfico de barras (collage)',
+    description:
+      'Barras con textura que crecen a saltos sobre papel, línea de referencia discontinua y una cifra destacada que cuenta hacia arriba. Columnas o barras horizontales tipo Vox.',
+    category: 'papers',
+    defaultDuration: 5,
+    animIn: 'none',
+    animOut: 'blur',
+    fields: [
+      { key: 'title', label: 'Título (*palabra* = cursiva)', type: 'textarea', default: 'El coste de entrenar IA se *desploma*' },
+      { key: 'subtitle', label: 'Subtítulo / fuente', type: 'text', default: 'Coste relativo por modelo · 2020–2027' },
+      { key: 'data', label: 'Datos (una línea: «Etiqueta: valor»)', type: 'textarea', default: '2020: 100\n2021: 88\n2022: 70\n2023: 48\n2024: 41\n2025: 28\n2026: 16\n2027: 14' },
+      { key: 'orientation', label: 'Disposición', type: 'select', default: 'vertical', options: [
+        { value: 'vertical', label: 'Columnas' },
+        { value: 'horizontal', label: 'Barras horizontales' },
+      ] },
+      { key: 'highlight', label: 'Cifra destacada', type: 'text', default: '4%' },
+      { key: 'refLine', label: 'Línea de referencia (valor, 0 = sin línea)', type: 'number', default: 50, min: 0, max: 100000, step: 1 },
+      { key: 'showValues', label: 'Mostrar valores', type: 'boolean', default: false },
+      { key: 'color', label: 'Color de las barras', type: 'color', default: '#ff3b1f' },
+      { key: 'image', label: 'Recorte abajo (edificio, persona...)', type: 'asset', default: '', assetTypes: ['image', 'video'] },
+      { key: 'bw', label: 'Recorte en blanco y negro', type: 'boolean', default: true },
+      { key: 'background', label: 'Fondo', type: 'select', default: 'pink', options: PAPER_BACKGROUNDS },
+      { key: 'stopMotion', label: 'Stop motion (12 fps)', type: 'boolean', default: true },
+    ],
+  },
+  {
+    id: 'headlines',
+    name: 'Titulares recortados',
+    description: 'Hasta tres titulares de prensa en papel rasgado que caen uno tras otro; las frases entre *asteriscos* se resaltan con rotulador.',
+    category: 'papers',
+    defaultDuration: 5,
+    animIn: 'none',
+    animOut: 'blur',
+    fields: [
+      {
+        key: 'clippings',
+        label: 'Recortes',
+        type: 'panels',
+        panelCount: 3,
+        default: [
+          { outlet: 'TECH WEEKLY', headline: '*AI models now beat doctors* at reading X-rays' },
+          { outlet: 'The Daily Ledger', headline: 'Startups raised *$97 billion* for AI in a single quarter' },
+          { outlet: 'Science Today', headline: '*One in four jobs* will change by 2030, report says' },
+        ],
+        panelFields: [
+          { key: 'outlet', label: 'Medio', type: 'text', default: '' },
+          { key: 'headline', label: 'Titular (*frase* = resaltada)', type: 'textarea', default: '' },
+        ],
+      },
+      { key: 'accent', label: 'Color del rotulador', type: 'color', default: '#fff23a' },
+      { key: 'background', label: 'Fondo', type: 'select', default: 'dark', options: PAPER_BACKGROUNDS },
+      { key: 'stopMotion', label: 'Stop motion (12 fps)', type: 'boolean', default: true },
+    ],
+  },
+  {
+    id: 'collage-title',
+    name: 'Título collage',
+    description: 'Palabra grande en serif sobre una pincelada de color (o en tinta), con frase de entrada, bocadillo, garabato a mano y recorte opcional.',
+    category: 'papers',
+    defaultDuration: 4,
+    animIn: 'none',
+    animOut: 'blur',
+    fields: [
+      { key: 'lead', label: 'Frase de entrada', type: 'text', default: 'La nueva era de los' },
+      { key: 'word', label: 'Palabra', type: 'text', default: 'Robots' },
+      { key: 'style', label: 'Estilo', type: 'select', default: 'brush', options: [
+        { value: 'brush', label: 'Pincelada de color' },
+        { value: 'ink', label: 'Tinta negra' },
+      ] },
+      { key: 'tag', label: 'Bocadillo', type: 'text', default: 'IA' },
+      { key: 'squiggle', label: 'Garabato a mano', type: 'boolean', default: true },
+      { key: 'accent', label: 'Color', type: 'color', default: '#ff2d7a' },
+      { key: 'font', label: 'Fuente', type: 'font', default: 'Playfair Display Variable' },
+      { key: 'image', label: 'Recorte (abajo a la izquierda)', type: 'asset', default: '', assetTypes: ['image', 'video'] },
+      { key: 'bw', label: 'Recorte en blanco y negro', type: 'boolean', default: false },
+      { key: 'background', label: 'Fondo', type: 'select', default: 'paper', options: PAPER_BACKGROUNDS },
+      { key: 'stopMotion', label: 'Stop motion (12 fps)', type: 'boolean', default: true },
+    ],
+  },
   {
     id: 'glass-lower-third',
     name: 'Rótulo de vidrio',
@@ -172,47 +300,6 @@ export const TEMPLATES: TemplateDef[] = [
         { value: 'columns', label: 'Columnas' },
         { value: 'rows', label: 'Filas' },
       ] },
-    ],
-  },
-  {
-    id: 'paper',
-    name: 'Paper (collage)',
-    description:
-      'Hoja de un paper que cae sobre papel texturizado, con acercamiento al título y marcas a mano (rotulador, subrayado o círculo) en las frases entre *asteriscos*.',
-    category: 'layouts',
-    defaultDuration: 6,
-    animIn: 'none',
-    animOut: 'blur',
-    fields: [
-      { key: 'source', label: 'Fuente / revista', type: 'text', default: 'arXiv · 2026' },
-      { key: 'title', label: 'Título (*frase* = marcada)', type: 'textarea', default: 'Small models can *reason* like *large ones*' },
-      { key: 'authors', label: 'Autores', type: 'textarea', default: 'A. Pérez · L. Chen · M. Rossi\nStanford University · Google DeepMind' },
-      {
-        key: 'abstract',
-        label: 'Resumen (*frase* = marcada)',
-        type: 'textarea',
-        default:
-          'We show that a 3B-parameter model trained on synthetic reasoning traces *matches models 20x its size* on math and coding benchmarks, while running on a single laptop GPU.',
-      },
-      { key: 'note', label: 'Nota adhesiva', type: 'text', default: 'Nuevo paper' },
-      { key: 'image', label: 'Recorte (figura o foto)', type: 'asset', default: '', assetTypes: ['image', 'video'] },
-      { key: 'bw', label: 'Recorte en blanco y negro', type: 'boolean', default: true },
-      { key: 'mark', label: 'Marca', type: 'select', default: 'marker', options: [
-        { value: 'marker', label: 'Rotulador' },
-        { value: 'underline', label: 'Subrayado a mano' },
-        { value: 'circle', label: 'Círculo a mano' },
-      ] },
-      { key: 'accent', label: 'Color de las marcas', type: 'color', default: '#f5a524' },
-      { key: 'font', label: 'Fuente del título', type: 'font', default: 'Playfair Display Variable' },
-      { key: 'background', label: 'Fondo', type: 'select', default: 'paper', options: [
-        { value: 'paper', label: 'Papel texturizado' },
-        { value: 'dim', label: 'Oscurecer' },
-        { value: 'none', label: 'Ninguno' },
-      ] },
-      { key: 'zoom', label: 'Acercamiento', type: 'number', default: 1.45, min: 1, max: 2, step: 0.05 },
-      { key: 'tilt', label: 'Inclinación (°)', type: 'number', default: -2.5, min: -15, max: 15, step: 0.5 },
-      { key: 'halftone', label: 'Tramas de puntos', type: 'boolean', default: true },
-      { key: 'stopMotion', label: 'Stop motion (12 fps)', type: 'boolean', default: true },
     ],
   },
   {
