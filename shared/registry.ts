@@ -175,6 +175,47 @@ export const TEMPLATES: TemplateDef[] = [
     ],
   },
   {
+    id: 'paper',
+    name: 'Paper (collage)',
+    description:
+      'Hoja de un paper que cae sobre papel texturizado, con acercamiento al título y marcas a mano (rotulador, subrayado o círculo) en las frases entre *asteriscos*.',
+    category: 'layouts',
+    defaultDuration: 6,
+    animIn: 'none',
+    animOut: 'blur',
+    fields: [
+      { key: 'source', label: 'Fuente / revista', type: 'text', default: 'arXiv · 2026' },
+      { key: 'title', label: 'Título (*frase* = marcada)', type: 'textarea', default: 'Small models can *reason* like *large ones*' },
+      { key: 'authors', label: 'Autores', type: 'textarea', default: 'A. Pérez · L. Chen · M. Rossi\nStanford University · Google DeepMind' },
+      {
+        key: 'abstract',
+        label: 'Resumen (*frase* = marcada)',
+        type: 'textarea',
+        default:
+          'We show that a 3B-parameter model trained on synthetic reasoning traces *matches models 20x its size* on math and coding benchmarks, while running on a single laptop GPU.',
+      },
+      { key: 'note', label: 'Nota adhesiva', type: 'text', default: 'Nuevo paper' },
+      { key: 'image', label: 'Recorte (figura o foto)', type: 'asset', default: '', assetTypes: ['image', 'video'] },
+      { key: 'bw', label: 'Recorte en blanco y negro', type: 'boolean', default: true },
+      { key: 'mark', label: 'Marca', type: 'select', default: 'marker', options: [
+        { value: 'marker', label: 'Rotulador' },
+        { value: 'underline', label: 'Subrayado a mano' },
+        { value: 'circle', label: 'Círculo a mano' },
+      ] },
+      { key: 'accent', label: 'Color de las marcas', type: 'color', default: '#f5a524' },
+      { key: 'font', label: 'Fuente del título', type: 'font', default: 'Playfair Display Variable' },
+      { key: 'background', label: 'Fondo', type: 'select', default: 'paper', options: [
+        { value: 'paper', label: 'Papel texturizado' },
+        { value: 'dim', label: 'Oscurecer' },
+        { value: 'none', label: 'Ninguno' },
+      ] },
+      { key: 'zoom', label: 'Acercamiento', type: 'number', default: 1.45, min: 1, max: 2, step: 0.05 },
+      { key: 'tilt', label: 'Inclinación (°)', type: 'number', default: -2.5, min: -15, max: 15, step: 0.5 },
+      { key: 'halftone', label: 'Tramas de puntos', type: 'boolean', default: true },
+      { key: 'stopMotion', label: 'Stop motion (12 fps)', type: 'boolean', default: true },
+    ],
+  },
+  {
     id: 'liquid-title',
     name: 'Título cromo líquido',
     description: 'Barra o texto de metal líquido animado con shader, como el título "Rank".',
