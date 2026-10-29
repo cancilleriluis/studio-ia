@@ -3,6 +3,7 @@ import { MousePointer2 } from 'lucide-react';
 import { clamp, ease, lerp, prog } from '../engine/anim';
 import { LiquidChrome } from '../engine/LiquidChrome';
 import { Anchor, ICON_MAP, PanelMedia, parseAccent, type TplProps } from './common';
+import { PAPERS_COMPONENTS } from './papers';
 import './templates.css';
 
 const cssVars = (v: Record<string, string | number>) => v as CSSProperties;
@@ -570,6 +571,7 @@ export const TEMPLATE_COMPONENTS: Record<string, ComponentType<TplProps>> = {
   'glass-lower-third': GlassLowerThird,
   'split-screen': SplitScreen,
   triptych: Triptych,
+  ...PAPERS_COMPONENTS,
   'liquid-title': LiquidTitle,
   'title-card': TitleCard,
   text: TextTpl,
