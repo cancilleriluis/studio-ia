@@ -17,5 +17,6 @@ Editor de vídeo local de Luis (React + Vite en `src/`, servidor Express en `ser
 ## Desarrollo
 
 - `npm run dev` (servidor 3210 + Vite 5173), `npm run typecheck`.
+- Todos los checkouts y git worktrees comparten la carpeta `projects/` del checkout principal (la calcula `server/config.ts` con `git rev-parse --git-common-dir`; `STUDIO_PROJECTS_DIR` la sustituye). Al arrancar, el servidor muestra la carpeta en uso.
 - El render de exportación abre `/?render=1&project=<id>&format=<f>` en Chrome sin ventana y llama a `window.__studio.seek(t)`; todo lo que se dibuje debe depender solo del tiempo (sin estado ni animaciones CSS/JS libres) para que preview y export coincidan.
 - `scripts/bench-render.mjs <projectId>` mide la velocidad del render.
