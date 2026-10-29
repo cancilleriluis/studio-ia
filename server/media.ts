@@ -37,7 +37,7 @@ function uniqueName(dir: string, name: string): string {
 }
 
 /** Copia (o mueve) un fichero al proyecto y lanza su procesado en segundo plano. */
-export async function importFile(projectId: string, src: string, originalName: string, move = false): Promise<Asset> {
+export async function importFile(projectId: string, src: string, originalName: string, move = false, extra: Partial<Asset> = {}): Promise<Asset> {
   const type = detectType(originalName);
   if (!type) throw new Error(`Formato no soportado: ${originalName}`);
   const dir = mediaDir(projectId);
@@ -88,6 +88,7 @@ export async function importFile(projectId: string, src: string, originalName: s
     status: 'processing',
     progress: 0,
     transcriptStatus: 'none',
+    ...extra,
   };
   mutateProject(projectId, (p) => p.assets.push(asset), 'silent');
   broadcast(projectId, 'asset', asset);

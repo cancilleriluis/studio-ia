@@ -53,7 +53,7 @@ export function addTemplateAt(templateId: string, start?: number, trackId?: stri
     const filled = { ...(props ?? {}) };
     // Rellenar paneles con los medios del proyecto para que se vea algo al instante
     if (templateId === 'split-screen' || templateId === 'triptych') {
-      const media = p.assets.filter((a) => a.type === 'video' || a.type === 'image');
+      const media = p.assets.filter((a) => (a.type === 'video' || a.type === 'image') && !a.removed);
       if (media.length) {
         const def = templateId === 'split-screen'
           ? [{ label: 'SCENE 2' }, { label: 'SCENE 3' }]

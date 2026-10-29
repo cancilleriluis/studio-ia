@@ -31,6 +31,12 @@ export interface Asset {
   transcript?: string; // json con palabras (tiempo de la fuente)
   /** Posición de la cara (0..1 del fotograma) muestreada a `rate` Hz y ya suavizada, para Auto Reframe. */
   faceTrack?: { rate: number; points: [number, number][] };
+  /** Carpeta del panel de medios (id de `Project.mediaFolders`). */
+  folder?: string;
+  /** Eliminado del panel: se oculta, pero se conserva para poder deshacer y restaurar versiones. */
+  removed?: boolean;
+  /** Efecto de sonido de la biblioteca del que procede (id de `SOUND_EFFECTS`). */
+  sfx?: string;
   transcriptStatus?: 'none' | 'processing' | 'ready' | 'error';
   status: 'processing' | 'ready' | 'error';
   progress?: number;
@@ -262,8 +268,19 @@ export interface Project {
   captions: Captions;
   audio: { duckLevel: number; master: number };
   markers: Marker[];
+  /** Carpetas del panel de medios. */
+  mediaFolders?: MediaFolder[];
+  /** Orden del panel de medios. */
+  mediaSort?: MediaSort;
   updatedAt: number;
 }
+
+export interface MediaFolder {
+  id: string;
+  name: string;
+}
+
+export type MediaSort = 'added' | 'recent' | 'name' | 'type' | 'duration';
 
 export interface TranscriptFile {
   language?: string;

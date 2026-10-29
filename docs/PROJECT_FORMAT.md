@@ -6,6 +6,9 @@ Los tipos exactos están en `shared/types.ts`. Resumen:
 - `format`: `"16:9" | "9:16" | "1:1" | "4:5"`. Tamaños: 1920×1080, 1080×1920, 1080×1080, 1080×1350.
 - `fps`: fotogramas por segundo de la línea de tiempo (30 por defecto).
 - `assets[]`: medios importados. `id`, `type` (`video|audio|image|lut`), `duration`, `hasAudio`, `transcript` (ruta a JSON con palabras en tiempo de la fuente), `faceTrack` `{ rate, points: [x, y][] }` (cara detectada y suavizada, 0..1 del fotograma; la calcula el editor). Las `lut` son ficheros `.cube` que se aplican desde el color, no van en la línea de tiempo.
+  `folder` (id de carpeta del panel de medios), `removed` (eliminado del panel: se oculta, pero se conserva para deshacer y restaurar versiones; no lo uses en clips nuevos), `sfx` (id del efecto de sonido de la biblioteca de `SOUND_EFFECTS` en `shared/registry.ts`).
+- `mediaFolders[]`: carpetas del panel de medios `{ id, name }`. `mediaSort`: orden del panel (`added|recent|name|type|duration`).
+- Efectos de sonido: `POST /api/projects/:id/sfx {id}` copia uno de la biblioteca (`assets/sfx/`, generados con `node scripts/make-sfx.mjs`) como asset de audio, o devuelve el que ya esté en el proyecto.
 - `tracks[]`: en orden de pantalla. Primero las visuales (la primera es la de **arriba**, se dibuja encima), luego las de audio. `kind`: `visual|audio`. `muted`, `hidden`, `locked`.
 - `clips[]`: lista plana; cada clip tiene `trackId`, `start` y `duration` (segundos de la línea de tiempo). Nunca se solapan dos clips en la misma pista.
   - `video` / `image`: `assetId`, `in` (segundo de la fuente), `speed`, `volume` (0–1+), `fadeIn`, `fadeOut`, `fit` (`cover|contain`),

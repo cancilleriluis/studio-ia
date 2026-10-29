@@ -563,6 +563,22 @@ export const CAPTION_PRESETS: { id: CaptionPreset; name: string; description: st
   { id: 'minimal', name: 'Minimal', description: 'Texto blanco pequeño con sombra.' },
 ];
 
+/** Biblioteca de efectos de sonido (ficheros en `assets/sfx/`, generados por `scripts/make-sfx.mjs`). */
+export interface SoundEffectDef {
+  id: string;
+  name: string;
+  description: string;
+  file: string;
+}
+
+export const SOUND_EFFECTS: SoundEffectDef[] = [
+  { id: 'clic', name: 'Clic', description: 'Clic de ratón: botones, cursores y apariciones rápidas.', file: 'clic.wav' },
+  { id: 'pasar-pagina', name: 'Pasar página', description: 'Roce de papel y chasquido; va bien con «Paper» y los titulares.', file: 'pasar-pagina.wav' },
+  { id: 'abrir-libro', name: 'Abrir libro', description: 'Golpe de tapa y hojas que caen; para abrir una sección o un paper.', file: 'abrir-libro.wav' },
+  { id: 'brisa', name: 'Brisa', description: 'Viento suave de 5 s, de fondo para escenas de collage.', file: 'brisa.wav' },
+  { id: 'whoosh', name: 'Whoosh', description: 'Barrido de aire para transiciones y entradas de texto.', file: 'whoosh.wav' },
+];
+
 export function getTemplate(id: string): TemplateDef | undefined {
   return TEMPLATES.find((t) => t.id === id);
 }

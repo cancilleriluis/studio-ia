@@ -6,6 +6,7 @@ import express from 'express';
 import multer from 'multer';
 import type { FormatId, Project } from '../shared/types';
 import { FORMAT_IDS } from '../shared/formats';
+import { SOUND_EFFECTS } from '../shared/registry';
 import { CLIENT_URL, IS_PROD, PORT, PROJECTS_DIR, ROOT, findBinary } from './config';
 import {
   createProject,
@@ -116,6 +117,20 @@ app.post('/api/projects/:id/upload', upload.array('files'), wrap(async (req) => 
 app.post('/api/projects/:id/import-path', wrap(async (req) => {
   const src = resolveImportPath(String(req.body?.path ?? ''));
   return importFile(pid(req), src, path.basename(src));
+}));
+
+// Biblioteca de efectos de sonido: escucha previa y copia al proyecto
+const SFX_DIR = path.join(ROOT, 'assets', 'sfx');
+app.use('/api/sfx-files', express.static(SFX_DIR, { maxAge: 0 }));
+
+app.post('/api/projects/:id/sfx', wrap(async (req) => {
+  const id = pid(req);
+  const def = SOUND_EFFECTS.find((s) => s.id === req.body?.id);
+  if (!def) throw new Error('Efecto de sonido desconocido');
+  // Si ya está en el proyecto, se reutiliza en lugar de copiarlo otra vez
+  const existing = loadProject(id).assets.find((a) => a.sfx === def.id && !a.removed && a.status !== 'error');
+  if (existing) return existing;
+  return importFile(id, path.join(SFX_DIR, def.file), `${def.name}.wav`, false, { sfx: def.id });
 }));
 
 app.post('/api/projects/:id/assets/:assetId/transcribe', wrap(async (req) => {
