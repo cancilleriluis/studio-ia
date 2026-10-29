@@ -7,13 +7,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import puppeteer, { type Browser } from 'puppeteer';
-import type { FormatId } from '../shared/types';
+import type { FormatId, Project } from '../shared/types';
 import { FORMATS } from '../shared/formats';
 import { uid } from '../shared/id';
 import { projectDuration } from '../shared/ops';
 import { CLIENT_URL } from './config';
 import { mixProjectAudio } from './audiomix';
-import { run } from './ffmpeg';
+import { backgroundPriority, run } from './ffmpeg';
 import { PROXY_LONG_SIDE, ensureHiresProxy } from './media';
 import { broadcast, exportsDir, loadProject } from './store';
 
@@ -39,6 +39,11 @@ const HAS_VIDEOTOOLBOX = (() => {
 function videoEncoder(codec: 'h264' | 'hevc', quality: ExportOptions['quality']): string[] {
   const crf = quality === 'high' ? 16 : quality === 'standard' ? 20 : 26;
   const preset = quality === 'draft' ? 'veryfast' : 'medium';
+  if (codec === 'h264' && HAS_VIDEOTOOLBOX) {
+    // Codificador por hardware del Mac: casi sin CPU, así la CPU queda para Chrome y el
+    // resto del sistema. q 80 ≈ mismo tamaño y calidad que libx264 crf 16 (SSIM 0,993).
+    return ['-c:v', 'h264_videotoolbox', '-q:v', quality === 'high' ? '80' : quality === 'standard' ? '70' : '55', '-profile:v', 'high'];
+  }
   if (codec === 'hevc') {
     // HEVC acelerado por el chip del Mac: archivos ~40 % más pequeños
     return HAS_VIDEOTOOLBOX
@@ -64,6 +69,15 @@ export interface ExportJob {
 
 export const jobs = new Map<string, ExportJob>();
 const cancelled = new Set<string>();
+/**
+ * Copia del proyecto tomada al pulsar Exportar. Las páginas de render la usan en lugar
+ * del fichero: lo que se edite mientras tanto no se mezcla a mitad de exportación.
+ */
+const snapshots = new Map<string, Project>();
+
+export function jobProject(jobId: string): Project | undefined {
+  return snapshots.get(jobId);
+}
 
 /**
  * Cada proceso de render usa su propio Chrome con una sola página: así esa página
@@ -93,12 +107,29 @@ function releaseSlot() {
 async function launchBrowser(): Promise<Browser> {
   await acquireSlot();
   try {
-    return await launchChrome();
+    const b = await launchChrome();
+    lowerPriority(b.process()?.pid);
+    return b;
   } catch (e) {
     releaseSlot();
     throw e;
   }
 }
+
+/**
+ * Prioridad baja para un proceso y sus hijos ya creados (los que cree después la heredan):
+ * la exportación usa la CPU libre sin que el resto del Mac se vuelva lento.
+ */
+function lowerPriority(pid: number | undefined) {
+  if (!pid) return;
+  backgroundPriority(pid);
+  try {
+    for (const child of execFileSync('pgrep', ['-P', String(pid)]).toString().split('\n').filter(Boolean)) lowerPriority(Number(child));
+  } catch {
+    /* sin hijos */
+  }
+}
+
 
 async function closeBrowser(b: Browser) {
   try {
@@ -147,7 +178,7 @@ function emit(job: ExportJob) {
   broadcast(job.projectId, 'job', job);
 }
 
-export function startExport(projectId: string, opts: ExportOptions): ExportJob {
+export function startExport(projectId: string, opts: ExportOptions, snapshot: Project = loadProject(projectId)): ExportJob {
   const job: ExportJob = {
     id: uid('job_'),
     projectId,
@@ -157,6 +188,7 @@ export function startExport(projectId: string, opts: ExportOptions): ExportJob {
     startedAt: Date.now(),
   };
   jobs.set(job.id, job);
+  snapshots.set(job.id, structuredClone(snapshot));
   emit(job);
   exportQueue = exportQueue.then(() => runExport(job, opts)).catch(() => {});
   return job;
@@ -172,7 +204,7 @@ async function runExport(job: ExportJob, opts: ExportOptions) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-render-'));
   try {
     if (cancelled.has(job.id)) throw new Error('cancelled');
-    const p = loadProject(job.projectId);
+    const p = snapshots.get(job.id) ?? loadProject(job.projectId);
     const { width, height } = FORMATS[opts.format];
     const fullDuration = projectDuration(p);
     if (fullDuration <= 0) throw new Error('El proyecto está vacío');
@@ -205,13 +237,17 @@ async function runExport(job: ExportJob, opts: ExportOptions) {
           emit(job);
         });
       }
+      // Las copias a resolución completa se anotan en el fichero: pasarlas a la copia del trabajo
+      const fresh = new Map(loadProject(job.projectId).assets.map((a) => [a.id, a]));
+      p.assets = p.assets.map((a) => (fresh.get(a.id)?.hiresProxy ? { ...a, hiresProxy: fresh.get(a.id)!.hiresProxy } : a));
     }
 
     job.status = 'rendering';
     emit(job);
 
     // En 4K cada página ocupa 4 veces más memoria: menos procesos en paralelo
-    const maxWorkers = scale > 1 ? 3 : 6;
+    // Medido en un M4: más procesos apenas acelera y sí ralentiza el resto del Mac
+    const maxWorkers = Number(process.env.STUDIO_RENDER_WORKERS) || (scale > 1 ? 3 : 4);
     const workers = Math.max(1, Math.min(Math.ceil(total / 90), maxWorkers, Math.floor(os.cpus().length / 2)));
     const per = Math.ceil(total / workers);
     const done = new Array(workers).fill(0);
@@ -237,7 +273,7 @@ async function runExport(job: ExportJob, opts: ExportOptions) {
         const seg = path.join(tmp, `seg${w}.mp4`);
         segments[w] = seg;
         const args: SegmentArgs = {
-          projectId: job.projectId, format: opts.format, width, height, scale, hires, fps, from, to, offset: r0, out: seg, encoder,
+          projectId: job.projectId, jobId: job.id, format: opts.format, width, height, scale, hires, fps, from, to, offset: r0, out: seg, encoder,
           onFrame: (n) => {
             done[w] = n;
             report();
@@ -303,12 +339,14 @@ async function runExport(job: ExportJob, opts: ExportOptions) {
     console.error('[render]', e);
     emit(job);
   } finally {
+    snapshots.delete(job.id);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
 interface SegmentArgs {
   projectId: string;
+  jobId: string;
   format: FormatId;
   width: number;
   height: number;
@@ -335,6 +373,7 @@ async function renderSegment(a: SegmentArgs) {
     '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
     '-r', String(a.fps), a.out,
   ]);
+  lowerPriority(ff.pid);
   let ffErr = '';
   ff.stderr.on('data', (d) => (ffErr = (ffErr + d.toString()).slice(-4000)));
   const ffDone = new Promise<void>((resolve, reject) =>
@@ -347,7 +386,9 @@ async function renderSegment(a: SegmentArgs) {
       if (m.type() === 'error') console.warn('[render page]', m.text());
     });
     page.on('pageerror', (e) => console.warn('[render page error]', e));
-    await openRenderPage(page, a.projectId, a.format, a.width, a.height, a.scale, a.hires);
+    await openRenderPage(page, a.projectId, a.format, a.width, a.height, a.scale, a.hires, a.jobId);
+    // Los procesos de página y de GPU ya existen: bajarles también la prioridad
+    lowerPriority(browser.process()?.pid);
     for (let i = a.from; i < a.to; i++) {
       if (a.isCancelled()) throw new Error('cancelled');
       const t = a.offset + i / a.fps;
@@ -366,9 +407,9 @@ async function renderSegment(a: SegmentArgs) {
   }
 }
 
-async function openRenderPage(page: import('puppeteer').Page, projectId: string, format: FormatId, width: number, height: number, scale: number, hires = false) {
+async function openRenderPage(page: import('puppeteer').Page, projectId: string, format: FormatId, width: number, height: number, scale: number, hires = false, jobId?: string) {
   await page.setViewport({ width, height, deviceScaleFactor: scale });
-  const url = `${CLIENT_URL}/?render=1&project=${encodeURIComponent(projectId)}&format=${encodeURIComponent(format)}${hires ? '&hires=1' : ''}`;
+  const url = `${CLIENT_URL}/?render=1&project=${encodeURIComponent(projectId)}&format=${encodeURIComponent(format)}${hires ? '&hires=1' : ''}${jobId ? `&job=${encodeURIComponent(jobId)}` : ''}`;
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   // Comprobar por tiempo y no por fotograma pintado: las pestañas en segundo plano
   // (al exportar con varios procesos) no pintan y la espera no terminaría nunca.

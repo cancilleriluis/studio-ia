@@ -1,4 +1,19 @@
+import os from 'node:os';
 import { spawn } from 'node:child_process';
+
+/**
+ * Prioridad baja para los procesos pesados (ffmpeg, Chrome de render): usan la CPU que
+ * sobra y el Mac sigue respondiendo mientras importas o exportas.
+ */
+export const BACKGROUND_NICE = 10;
+export function backgroundPriority(pid: number | undefined) {
+  if (!pid) return;
+  try {
+    os.setPriority(pid, BACKGROUND_NICE);
+  } catch {
+    /* el proceso ya terminó */
+  }
+}
 
 export interface ProbeResult {
   duration: number;
@@ -9,6 +24,7 @@ export interface ProbeResult {
 export function run(cmd: string, args: string[], onStderr?: (line: string) => void): Promise<{ stdout: Buffer; stderr: string }> {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args);
+    backgroundPriority(proc.pid);
     const out: Buffer[] = [];
     let err = '';
     proc.stdout.on('data', (d) => out.push(d));
@@ -57,6 +73,7 @@ export async function probe(file: string): Promise<ProbeResult> {
 export function ffmpegWithProgress(args: string[], duration: number, onProgress: (p: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn('ffmpeg', ['-hide_banner', '-nostdin', '-progress', 'pipe:1', ...args]);
+    backgroundPriority(proc.pid);
     let err = '';
     let last = 0;
     proc.stdout.on('data', (d) => {

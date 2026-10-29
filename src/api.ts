@@ -66,10 +66,11 @@ export const api = {
   transcript: (id: string, assetId: string) => req<TranscriptFile | null>('GET', `/api/projects/${id}/assets/${assetId}/transcript`),
   export: (
     id: string,
-    opts: { formats: FormatId[]; fps: number; quality: string; normalize: boolean; range?: [number, number]; scale?: number; codec?: 'h264' | 'hevc' },
+    opts: { formats: FormatId[]; fps: number; quality: string; normalize: boolean; range?: [number, number]; scale?: number; codec?: 'h264' | 'hevc'; project?: Project },
   ) =>
     req<ExportJob[]>('POST', `/api/projects/${id}/export`, opts),
   exports: (id: string) => req<ExportJob[]>('GET', `/api/projects/${id}/exports`),
+  jobProject: (jobId: string) => req<Project>('GET', `/api/jobs/${jobId}/project`),
   cancelJob: (jobId: string) => req('POST', `/api/jobs/${jobId}/cancel`),
   reveal: (path: string) => req('POST', '/api/reveal', { path }),
   frame: (id: string, time: number, format: FormatId, scale = 1) =>

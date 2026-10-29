@@ -83,7 +83,11 @@ export function ExportDialog() {
   const start = async () => {
     setBusy(true);
     try {
+      // Cerrar cualquier edición a medias y enviar el proyecto tal y como se ve ahora
+      useEditor.getState().endTransient();
+      const current = useEditor.getState().project!;
       const created = await api.export(project.id, {
+        project: current,
         formats,
         fps,
         quality,
